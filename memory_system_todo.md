@@ -148,9 +148,9 @@ memory.mdで設計した記憶システムの実装計画。設計は完了済�
 
 ### 1.6 Hook設定
 
-- [ ] `.claude/settings.json` にHook設定を追加
-  - [ ] UserPromptSubmit: memory_retrieval.py
-  - [ ] SessionEnd: memory_generation.py
+- [x] `.claude/settings.json` にHook設定を追加
+  - [x] UserPromptSubmit: memory_retrieval.py
+  - [x] SessionEnd: memory_generation.py
 
 ### 1.7 初期データ
 
@@ -252,11 +252,13 @@ Phase 1 の基盤上に追加機能を実装する。
 
 ### 単体テスト
 
-- [ ] retention.py: 保持スコア計算
-- [ ] recall.py: 想起強化処理
-- [ ] resonance.py: 感情共鳴計算
-- [ ] relations.py: 類似度計算、関連付け方向
-- [ ] memory_store.py: CRUD操作、トランザクション
+- [x] retention.py: 保持スコア計算
+- [x] recall.py: 想起強化処理
+- [x] resonance.py: 感情共鳴計算
+- [x] relations.py: 類似度計算、関連付け方向
+- [x] memory_store.py: CRUD操作、トランザクション
+- [x] config_loader.py: 設定読み込み
+- [x] memory_retrieval.py: 純粋関数（cosine_similarity, format_memories等）
 
 ### 統合テスト
 

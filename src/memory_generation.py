@@ -14,10 +14,6 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
-# 標準入出力のエンコーディング設定（Windows対応）
-sys.stdin = io.TextIOWrapper(sys.stdin.buffer, encoding='utf-8')
-sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8')
-
 # パスを追加してモジュールをインポート可能に
 sys.path.insert(0, str(Path(__file__).parent))
 
@@ -241,6 +237,10 @@ def process_turn(
 
 def main():
     """メイン処理"""
+    # 標準入出力のエンコーディング設定（Windows対応）
+    sys.stdin = io.TextIOWrapper(sys.stdin.buffer, encoding='utf-8')
+    sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8')
+
     # Hookメタデータ取得
     metadata = get_hook_metadata()
     transcript_path = metadata.get("transcript_path")

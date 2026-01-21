@@ -15,10 +15,6 @@ from typing import Any
 
 import numpy as np
 
-# 標準入出力のエンコーディング設定（Windows対応）
-sys.stdin = io.TextIOWrapper(sys.stdin.buffer, encoding='utf-8')
-sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8')
-
 # パスを追加してモジュールをインポート可能に
 sys.path.insert(0, str(Path(__file__).parent))
 
@@ -216,6 +212,10 @@ def format_memories(results: list[tuple[dict[str, Any], bool]]) -> str:
 
 def main():
     """メイン処理"""
+    # 標準入出力のエンコーディング設定（Windows対応）
+    sys.stdin = io.TextIOWrapper(sys.stdin.buffer, encoding='utf-8')
+    sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8')
+
     # プロンプト取得
     query = get_prompt_from_stdin()
 
