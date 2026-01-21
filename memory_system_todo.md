@@ -41,25 +41,25 @@ memory.mdで設計した記憶システムの実装計画。設計は完了済�
 
 ### 1.2 記憶生成（SessionEnd Hook）
 
-- [ ] **memory_generation.py**: セッション終了時の記憶生成
-  - [ ] 標準入力からHookメタデータ取得（JSON）
-  - [ ] transcript_path からJSONL読み込み
-  - [ ] ターン抽出（user + assistant ペア）
-  - [ ] スラッシュコマンド除外判定
-  - [ ] LLM呼び出し（感情分析・要約）
-    - [ ] emotional_intensity (0-100)
-    - [ ] emotional_valence (positive/negative/neutral)
-    - [ ] emotional_arousal (0-100)
-    - [ ] emotional_tags
-    - [ ] category (casual/work/decision/emotional)
-    - [ ] keywords
-    - [ ] trigger（ユーザーの発言・行動の要約）
-    - [ ] content（自分の反応・感想の要約）
-  - [ ] Embedding生成（text-embedding-3-small）
-  - [ ] memory_days 初期値計算（次回バッチまでの経過時間）
-  - [ ] 減衰係数決定（カテゴリ × 感情強度）
-  - [ ] 保護記憶検出（「覚えておいて」等のフレーズ）
-  - [ ] SQLiteへの追加（MemoryStore.add_memory()経由）
+- [x] **memory_generation.py**: セッション終了時の記憶生成
+  - [x] 標準入力からHookメタデータ取得（JSON）
+  - [x] transcript_path からJSONL読み込み
+  - [x] ターン抽出（user + assistant ペア）
+  - [x] スラッシュコマンド除外判定
+  - [x] LLM呼び出し（感情分析・要約）
+    - [x] emotional_intensity (0-100)
+    - [x] emotional_valence (positive/negative/neutral)
+    - [x] emotional_arousal (0-100)
+    - [x] emotional_tags
+    - [x] category (casual/work/decision/emotional)
+    - [x] keywords
+    - [x] trigger（ユーザーの発言・行動の要約）
+    - [x] content（自分の反応・感想の要約）
+  - [x] Embedding生成（text-embedding-3-small）
+  - [x] memory_days 初期値計算（次回バッチまでの経過時間）
+  - [x] 減衰係数決定（カテゴリ × 感情強度）
+  - [x] 保護記憶検出（「覚えておいて」等のフレーズ）
+  - [x] SQLiteへの追加（MemoryStore.add_memory()経由）
 
 ### 1.3 記憶想起（UserPromptSubmit Hook）
 
