@@ -19,25 +19,25 @@ memory.mdで設計した記憶システムの実装計画。設計は完了済�
 
 ### 1.1 基盤モジュール
 
-- [ ] **config_loader.py**: 設定ファイル読み込み
-  - [ ] config.json のパース
-  - [ ] デフォルト値のマージ
+- [x] **config_loader.py**: 設定ファイル読み込み
+  - [x] config.json のパース
+  - [x] デフォルト値のマージ
   - [ ] バリデーション（任意）
 
-- [ ] **memory_store.py**: 記憶ストレージ操作（SQLite）
-  - [ ] MemoryStoreクラス実装
-  - [ ] `_init_db()`: テーブル・インデックス作成
-  - [ ] `_connect()`: WALモード有効化、コネクション管理
-  - [ ] `connection()`: 直接SQL実行用コネクション取得
-  - [ ] `add_memory()`: 記憶追加（bool→int変換含む）
-  - [ ] `get_active_memories()`: アクティブ記憶取得
-  - [ ] `get_archived_memories()`: アーカイブ記憶取得
-  - [ ] `update_memory()`: 記憶更新（JSON/Embedding変換含む）
-  - [ ] `mark_recalled()`: 想起フラグ一括更新
-  - [ ] `delete_memory()`: 記憶削除
-  - [ ] `get_state()` / `set_state()`: 状態管理
-  - [ ] `_encode_embedding()` / `_decode_embedding()`: BLOB変換
-  - [ ] `_row_to_dict()`: Row→dict変換（JSON/bool復元）
+- [x] **memory_store.py**: 記憶ストレージ操作（SQLite）
+  - [x] MemoryStoreクラス実装
+  - [x] `_init_db()`: テーブル・インデックス作成
+  - [x] `_connect()`: WALモード有効化、コネクション管理
+  - [x] `connection()`: 直接SQL実行用コネクション取得
+  - [x] `add_memory()`: 記憶追加（bool→int変換含む）
+  - [x] `get_active_memories()`: アクティブ記憶取得
+  - [x] `get_archived_memories()`: アーカイブ記憶取得
+  - [x] `update_memory()`: 記憶更新（JSON/Embedding変換含む）
+  - [x] `mark_recalled()`: 想起フラグ一括更新
+  - [x] `delete_memory()`: 記憶削除
+  - [x] `get_state()` / `set_state()`: 状態管理
+  - [x] `_encode_embedding()` / `_decode_embedding()`: BLOB変換
+  - [x] `_row_to_dict()`: Row→dict変換（JSON/bool復元）
 
 ### 1.2 記憶生成（SessionEnd Hook）
 
@@ -105,16 +105,16 @@ memory.mdで設計した記憶システムの実装計画。設計は完了済�
   - [ ] アーカイブ自動削除（条件に合致する記憶を完全消去）
   - [ ] last_compression_run 更新
 
-- [ ] **recall.py**: 想起強化処理
-  - [ ] recalled_since_last_batch = 1 の記憶を処理
-  - [ ] memory_days 半減（memory_days_reduction: 0.5）
-  - [ ] decay_coefficient +0.02（上限 max_decay_coefficient: 0.999）
-  - [ ] recall_count インクリメント
-  - [ ] recalled_since_last_batch = 0 にリセット
+- [x] **recall.py**: 想起強化処理
+  - [x] recalled_since_last_batch = 1 の記憶を処理
+  - [x] memory_days 半減（memory_days_reduction: 0.5）
+  - [x] decay_coefficient +0.02（上限 max_decay_coefficient: 0.999）
+  - [x] recall_count インクリメント
+  - [x] recalled_since_last_batch = 0 にリセット
 
-- [ ] **retention.py**: 保持スコア計算
-  - [ ] retention_score = emotional_intensity × decay_coefficient^memory_days
-  - [ ] レベル判定（閾値: 50 / 20 / 5）
+- [x] **retention.py**: 保持スコア計算
+  - [x] retention_score = emotional_intensity × decay_coefficient^memory_days
+  - [x] レベル判定（閾値: 50 / 20 / 5）
 
 - [ ] **relations.py**: 記憶の関連付け
   - [ ] 整合性チェック（削除された記憶への参照除去）
@@ -127,24 +127,24 @@ memory.mdで設計した記憶システムの実装計画。設計は完了済�
 
 ### 1.5 補助モジュール
 
-- [ ] **resonance.py**: 感情共鳴計算
-  - [ ] valence一致ボーナス（0.3）
-  - [ ] arousal近接ボーナス（最大0.2）
-  - [ ] tags重複ボーナス（重み0.5）
+- [x] **resonance.py**: 感情共鳴計算
+  - [x] valence一致ボーナス（0.3）
+  - [x] arousal近接ボーナス（最大0.2）
+  - [x] tags重複ボーナス（重み0.5）
 
-- [ ] **embedding.py**: Embedding操作
-  - [ ] OpenAI API呼び出し（text-embedding-3-small）
-  - [ ] バッチ生成対応
-  - [ ] エラーハンドリング（リトライ等）
+- [x] **embedding.py**: Embedding操作
+  - [x] OpenAI API呼び出し（text-embedding-3-small）
+  - [x] バッチ生成対応
+  - [x] エラーハンドリング（リトライ等）
 
-- [ ] **llm.py**: LLM操作
-  - [ ] Claude API呼び出し（Haiku、temperature=0）
-  - [ ] 感情分析プロンプト
-  - [ ] 圧縮プロンプト
-    - [ ] Level 1→2: content要約（元の30%程度に圧縮）
-    - [ ] Level 2→3: trigger・contentをキーワード抽出（各5〜10語）
-  - [ ] JSON出力パース
-  - [ ] エラーハンドリング
+- [x] **llm.py**: LLM操作
+  - [x] Claude API呼び出し（Haiku、temperature=0）
+  - [x] 感情分析プロンプト
+  - [x] 圧縮プロンプト
+    - [x] Level 1→2: content要約（元の30%程度に圧縮）
+    - [x] Level 2→3: trigger・contentをキーワード抽出（各5〜10語）
+  - [x] JSON出力パース
+  - [x] エラーハンドリング
 
 ### 1.6 Hook設定
 
