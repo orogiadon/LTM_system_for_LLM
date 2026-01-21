@@ -80,30 +80,30 @@ memory.mdで設計した記憶システムの実装計画。設計は完了済�
 
 ### 1.4 日次バッチ処理
 
-- [ ] **compression.py**: 圧縮・アーカイブ処理（メイン）
-  - [ ] 実行条件チェック（last_compression_run + interval_hours）
-  - [ ] recall.py を呼び出して想起強化処理
-  - [ ] memory_days +1.0（想起されなかった記憶）
-  - [ ] retention.py を呼び出して retention_score 再計算
-  - [ ] 閾値判定による圧縮
-    - [ ] Level 1 → 2: LLM要約生成
-    - [ ] Level 2 → 3: LLMキーワード抽出
-    - [ ] Level 3 → 4: アーカイブ移行（archived_at設定）
-  - [ ] 圧縮後のEmbedding再生成（trigger + content で再生成）
-  - [ ] アーカイブ復活処理
-    - [ ] revival_requested = 1 の記憶を抽出
-    - [ ] 比率チェック（Level 3 が 35% 未満なら復活）
-    - [ ] 復活時の retention_score 計算
-    - [ ] archived_at を NULL に更新してアクティブ化
-  - [ ] 比率強制処理
-    - [ ] Level 1 超過 → Level 2 へ強制圧縮
-    - [ ] Level 2 超過 → Level 3 へ強制圧縮
-    - [ ] Level 3 超過 → アーカイブへ強制移行
-    - [ ] 対象選定（retention_score → created → recall_count）
-    - [ ] 保護記憶は除外
-  - [ ] relations.py を呼び出して関連付け処理
-  - [ ] アーカイブ自動削除（条件に合致する記憶を完全消去）
-  - [ ] last_compression_run 更新
+- [x] **compression.py**: 圧縮・アーカイブ処理（メイン）
+  - [x] 実行条件チェック（last_compression_run + interval_hours）
+  - [x] recall.py を呼び出して想起強化処理
+  - [x] memory_days +1.0（想起されなかった記憶）
+  - [x] retention.py を呼び出して retention_score 再計算
+  - [x] 閾値判定による圧縮
+    - [x] Level 1 → 2: LLM要約生成
+    - [x] Level 2 → 3: LLMキーワード抽出
+    - [x] Level 3 → 4: アーカイブ移行（archived_at設定）
+  - [x] 圧縮後のEmbedding再生成（trigger + content で再生成）
+  - [x] アーカイブ復活処理
+    - [x] revival_requested = 1 の記憶を抽出
+    - [x] 比率チェック（Level 3 が 35% 未満なら復活）
+    - [x] 復活時の retention_score 計算
+    - [x] archived_at を NULL に更新してアクティブ化
+  - [x] 比率強制処理
+    - [x] Level 1 超過 → Level 2 へ強制圧縮
+    - [x] Level 2 超過 → Level 3 へ強制圧縮
+    - [x] Level 3 超過 → アーカイブへ強制移行
+    - [x] 対象選定（retention_score → created → recall_count）
+    - [x] 保護記憶は除外
+  - [x] relations.py を呼び出して関連付け処理
+  - [x] アーカイブ自動削除（条件に合致する記憶を完全消去）
+  - [x] last_compression_run 更新
 
 - [x] **recall.py**: 想起強化処理
   - [x] recalled_since_last_batch = 1 の記憶を処理
@@ -116,14 +116,14 @@ memory.mdで設計した記憶システムの実装計画。設計は完了済�
   - [x] retention_score = emotional_intensity × decay_coefficient^memory_days
   - [x] レベル判定（閾値: 50 / 20 / 5）
 
-- [ ] **relations.py**: 記憶の関連付け
-  - [ ] 整合性チェック（削除された記憶への参照除去）
-  - [ ] 関連付け方向の再評価（スコア逆転時の参照張り替え）
-  - [ ] 自動関連付け（enable_auto_linking = true の場合）
-    - [ ] 新規記憶 vs 全記憶 のみ比較（O(m×n)）
-    - [ ] find_similar_memories()（NumPy行列演算）
-    - [ ] 関連付け方向決定（高スコア → 低スコア）
-    - [ ] max_relations_per_memory 上限チェック
+- [x] **relations.py**: 記憶の関連付け
+  - [x] 整合性チェック（削除された記憶への参照除去）
+  - [x] 関連付け方向の再評価（スコア逆転時の参照張り替え）
+  - [x] 自動関連付け（enable_auto_linking = true の場合）
+    - [x] 新規記憶 vs 全記憶 のみ比較（O(m×n)）
+    - [x] find_similar_memories()（NumPy行列演算）
+    - [x] 関連付け方向決定（高スコア → 低スコア）
+    - [x] max_relations_per_memory 上限チェック
 
 ### 1.5 補助モジュール
 

@@ -1,0 +1,26 @@
+{
+  "hooks": {
+    "UserPromptSubmit": [
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python {{LTM_SYSTEM_PATH}}/src/memory_retrieval.py"
+          }
+        ]
+      }
+    ],
+    "SessionEnd": [
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python {{LTM_SYSTEM_PATH}}/src/memory_generation.py"
+          }
+        ]
+      }
+    ]
+  }
+}
