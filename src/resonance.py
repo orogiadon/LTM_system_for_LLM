@@ -6,7 +6,7 @@ resonance.py - 感情共鳴計算モジュール
 
 from typing import Any
 
-from .config_loader import get_config
+from config_loader import get_config
 
 
 def calculate_resonance(

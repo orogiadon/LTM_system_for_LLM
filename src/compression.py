@@ -16,13 +16,13 @@ from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any
 
-from .config_loader import get_config
-from .embedding import get_embedding
-from .llm import compress_to_level2, compress_to_level3
-from .memory_store import MemoryStore
-from .recall import process_all_recalled_memories
-from .relations import process_relations
-from .retention import calculate_retention_score, determine_level, should_compress
+from config_loader import get_config
+from embedding import get_embedding
+from llm import compress_to_level2, compress_to_level3
+from memory_store import MemoryStore
+from recall import process_all_recalled_memories
+from relations import process_relations
+from retention import calculate_retention_score, determine_level, should_compress
 
 
 def should_run_compression(store: MemoryStore, config: dict[str, Any] | None = None) -> bool:

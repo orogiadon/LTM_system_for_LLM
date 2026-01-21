@@ -7,8 +7,8 @@ recall.py - 想起強化処理モジュール
 
 from typing import Any
 
-from .config_loader import get_config
-from .memory_store import MemoryStore
+from config_loader import get_config
+from memory_store import MemoryStore
 
 
 def process_recalled_memory(

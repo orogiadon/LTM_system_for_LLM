@@ -6,7 +6,7 @@ retention.py - 保持スコア計算モジュール
 
 from typing import Any
 
-from .config_loader import get_config
+from config_loader import get_config
 
 
 def calculate_retention_score(

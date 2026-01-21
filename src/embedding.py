@@ -9,7 +9,7 @@ from typing import Any
 
 from openai import OpenAI, APIError, RateLimitError
 
-from .config_loader import get_config
+from config_loader import get_config
 
 
 def get_embedding(

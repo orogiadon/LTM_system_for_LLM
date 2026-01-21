@@ -11,8 +11,8 @@ from typing import Any
 
 import numpy as np
 
-from .config_loader import get_config
-from .memory_store import MemoryStore
+from config_loader import get_config
+from memory_store import MemoryStore
 
 
 def find_similar_memories(
