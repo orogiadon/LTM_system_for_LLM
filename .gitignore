@@ -1,7 +1,5 @@
-# Database
-data/memories.db
-data/memories.db-wal
-data/memories.db-shm
+# Database and logs
+data/
 
 # Config (may contain API keys)
 config/config.json
