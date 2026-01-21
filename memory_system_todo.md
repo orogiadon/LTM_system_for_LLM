@@ -154,8 +154,8 @@ memory.mdで設計した記憶システムの実装計画。設計は完了済�
 
 ### 1.7 初期データ
 
-- [ ] `config/config.json` の作成（設計書のテンプレートをコピー）
-- [ ] `data/memories.db` の初期化（MemoryStore初回接続時に自動作成）
+- [x] `config/config.json` の作成（設計書のテンプレートをコピー）
+- [x] `data/memories.db` の初期化（MemoryStore初回接続時に自動作成）
 
 ### Phase 1 完了基準
 
