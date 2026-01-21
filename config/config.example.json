@@ -1,0 +1,83 @@
+{
+  "version": "1.0.0",
+
+  "retention": {
+    "base_decay_coefficient": 0.995,
+    "decay_by_category": {
+      "casual": { "min": 0.70, "max": 0.80 },
+      "work": { "min": 0.85, "max": 0.92 },
+      "decision": { "min": 0.93, "max": 0.97 },
+      "emotional": { "min": 0.98, "max": 0.999 }
+    },
+    "max_decay_coefficient": 0.999
+  },
+
+  "levels": {
+    "level1_threshold": 50,
+    "level2_threshold": 20,
+    "level3_threshold": 5
+  },
+
+  "recall": {
+    "decay_coefficient_boost": 0.02,
+    "memory_days_reduction": 0.5,
+    "recall_count_weight": 0.1
+  },
+
+  "resonance": {
+    "valence_match_bonus": 0.3,
+    "arousal_proximity_bonus": 0.2,
+    "tags_overlap_weight": 0.5,
+    "priority_weight_alpha": 0.3
+  },
+
+  "compression": {
+    "level1_ratio": 0.15,
+    "level2_ratio": 0.30,
+    "level3_ratio": 0.35,
+    "delete_ratio": 0.20,
+    "schedule_hour": 3,
+    "interval_hours": 24
+  },
+
+  "relations": {
+    "score_proximity_threshold": 5.0,
+    "auto_link_similarity_threshold": 0.85,
+    "max_relations_per_memory": 10,
+    "relation_traversal_depth": 1,
+    "enable_auto_linking": true
+  },
+
+  "retrieval": {
+    "top_k": 5,
+    "relevance_threshold": 5.0
+  },
+
+  "archive": {
+    "enable_archive_recall": true,
+    "revival_decay_per_day": 0.995,
+    "revival_min_margin": 3.0,
+    "auto_delete_enabled": false,
+    "retention_days": 365,
+    "delete_require_zero_recall": true,
+    "delete_max_intensity": 20,
+    "delete_condition_mode": "AND"
+  },
+
+  "protection": {
+    "max_protected_memories": 50
+  },
+
+  "embedding": {
+    "provider": "openai",
+    "model": "text-embedding-3-small",
+    "dimensions": 1536
+  },
+
+  "llm": {
+    "provider": "anthropic",
+    "model": "claude-3-5-haiku-20241022",
+    "temperature": 0,
+    "max_tokens": 1024
+  }
+}
