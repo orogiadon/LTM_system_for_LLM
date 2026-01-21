@@ -63,20 +63,20 @@ memory.mdで設計した記憶システムの実装計画。設計は完了済�
 
 ### 1.3 記憶想起（UserPromptSubmit Hook）
 
-- [ ] **memory_retrieval.py**: メッセージ送信時の記憶検索
-  - [ ] 標準入力からプロンプト取得（JSON）
-  - [ ] スラッシュコマンド除外判定
-  - [ ] クエリのEmbedding生成
-  - [ ] アクティブ記憶検索
-  - [ ] アーカイブ検索（enable_archive_recall = true の場合）
-  - [ ] コサイン類似度計算
-  - [ ] 参照優先度計算
-    - [ ] retention_score × 類似度 × (1 + 0.1 × recall_count)
-  - [ ] 感情共鳴スコア計算（resonance.py を使用）
-  - [ ] 閾値+フォールバック方式での上位N件抽出（retrieval.top_k, retrieval.relevance_threshold）
-  - [ ] 記憶フォーマット出力（`<memories>` タグ）
-  - [ ] アクティブ記憶の想起フラグ更新（mark_recalled）
-  - [ ] アーカイブ記憶の復活リクエストフラグ更新
+- [x] **memory_retrieval.py**: メッセージ送信時の記憶検索
+  - [x] 標準入力からプロンプト取得（JSON）
+  - [x] スラッシュコマンド除外判定
+  - [x] クエリのEmbedding生成
+  - [x] アクティブ記憶検索
+  - [x] アーカイブ検索（enable_archive_recall = true の場合）
+  - [x] コサイン類似度計算
+  - [x] 参照優先度計算
+    - [x] retention_score × 類似度 × (1 + 0.1 × recall_count)
+  - [x] 感情共鳴スコア計算（resonance.py を使用）
+  - [x] 閾値+フォールバック方式での上位N件抽出（retrieval.top_k, retrieval.relevance_threshold）
+  - [x] 記憶フォーマット出力（`<memories>` タグ）
+  - [x] アクティブ記憶の想起フラグ更新（mark_recalled）
+  - [x] アーカイブ記憶の復活リクエストフラグ更新
 
 ### 1.4 日次バッチ処理
 
