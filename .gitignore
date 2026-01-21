@@ -1,0 +1,30 @@
+# Database
+data/memories.db
+data/memories.db-wal
+data/memories.db-shm
+
+# Config (may contain API keys)
+config/config.json
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+.env
+.venv/
+venv/
+
+# Claude Code
+.claude/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
