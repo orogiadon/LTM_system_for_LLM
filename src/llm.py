@@ -11,7 +11,7 @@ from typing import Any
 import anthropic
 from anthropic import APIError, RateLimitError
 
-from .config_loader import get_config
+from config_loader import get_config
 
 
 # 感情分析プロンプト
@@ -32,8 +32,6 @@ EMOTION_ANALYSIS_PROMPT = """以下の会話を分析し、指定されたJSON�
   "emotional_tags": ["<感情タグ1>", "<感情タグ2>", ...],
   "category": "<casual/work/decision/emotional>",
   "keywords": ["<キーワード1>", "<キーワード2>", ...],
-  "trigger": "<ユーザーの発言・行動の要約（50文字以内）>",
-  "content": "<アシスタントの反応・感想の要約（100文字以内）>",
   "protected": <true/false: 「覚えておいて」等のフレーズがあればtrue>
 }}
 ```
@@ -45,14 +43,28 @@ EMOTION_ANALYSIS_PROMPT = """以下の会話を分析し、指定されたJSON�
 
 
 # 要約プロンプト（Level 1 → 2）
-SUMMARIZE_PROMPT = """以下のテキストを元の30%程度に要約してください。
-重要な情報を保持しつつ、簡潔にまとめてください。
+SUMMARIZE_PROMPT = """以下の記憶を要約してください。
 
-## 元のテキスト
+## 要約の方針
+- triggerは「何がきっかけだったか」を1〜2文で要約（具体的な話題や質問内容を残す）
+- contentは「どう反応したか」を2〜3文で要約（説明した内容、ユーザーの反応も残す）
+- 固有名詞、技術用語、具体的なトピックは省略しない
+- 感情的なニュアンスがあれば残す
+
+## 元の記憶
+きっかけ（trigger）:
+{trigger}
+
+反応（content）:
 {content}
 
-## 出力形式
-要約文のみを出力してください。余計な説明は不要です。"""
+## 出力形式（JSONのみ、説明不要）
+```json
+{{
+  "trigger": "<きっかけの要約>",
+  "content": "<反応の要約>"
+}}
+```"""
 
 
 # キーワード抽出プロンプト（Level 2 → 3）
@@ -180,19 +192,26 @@ def analyze_emotion(
     return _parse_json_response(response)
 
 
-def summarize_content(content: str, config: dict[str, Any] | None = None) -> str:
+def summarize_memory(
+    trigger: str,
+    content: str,
+    config: dict[str, Any] | None = None
+) -> tuple[str, str]:
     """
-    コンテンツを要約する（Level 1 → 2 圧縮用）
+    記憶を要約する（Level 1 → 2 圧縮用）
 
     Args:
-        content: 要約対象のテキスト
+        trigger: 元のtrigger
+        content: 元のcontent
         config: 設定辞書
 
     Returns:
-        要約されたテキスト
+        (要約されたtrigger, 要約されたcontent) のタプル
     """
-    prompt = SUMMARIZE_PROMPT.format(content=content)
-    return _call_claude(prompt, config).strip()
+    prompt = SUMMARIZE_PROMPT.format(trigger=trigger, content=content)
+    response = _call_claude(prompt, config)
+    result = _parse_json_response(response)
+    return result.get("trigger", trigger), result.get("content", content)
 
 
 def extract_keywords(text: str, config: dict[str, Any] | None = None) -> list[str]:
@@ -226,11 +245,9 @@ def compress_to_level2(
         config: 設定辞書
 
     Returns:
-        (trigger, 要約されたcontent) のタプル
+        (要約されたtrigger, 要約されたcontent) のタプル
     """
-    # triggerはそのまま維持、contentのみ要約
-    summarized_content = summarize_content(content, config)
-    return trigger, summarized_content
+    return summarize_memory(trigger, content, config)
 
 
 def compress_to_level3(

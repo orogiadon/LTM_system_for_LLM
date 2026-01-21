@@ -29,7 +29,8 @@ def get_hook_metadata() -> dict[str, Any]:
     try:
         data = json.load(sys.stdin)
         return data
-    except json.JSONDecodeError:
+    except Exception:
+        # すべての例外を無視して空のdictを返す
         return {}
 
 
@@ -65,6 +66,13 @@ def extract_turns(messages: list[dict[str, Any]]) -> list[tuple[str, str]]:
     """
     メッセージからユーザー・アシスタントのペアを抽出
 
+    Claude Codeのトランスクリプト形式:
+    {"type":"user","message":{"role":"user","content":[{"type":"text","text":"..."}]}}
+    {"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"..."}]}}
+
+    注意: アシスタントのメッセージは同じIDで複数行に分割されて記録されるため、
+    IDごとにテキストを集約する必要がある。
+
     Args:
         messages: メッセージのリスト
 
@@ -72,13 +80,26 @@ def extract_turns(messages: list[dict[str, Any]]) -> list[tuple[str, str]]:
         (user_message, assistant_message) のタプルのリスト
     """
     turns = []
-    user_message = None
+    current_user_message = None
+    current_user_uuid = None
+    assistant_texts: dict[str, list[str]] = {}  # message_id -> texts
+    assistant_order: list[tuple[str, str]] = []  # (user_uuid, message_id) の順序
 
     for msg in messages:
-        role = msg.get("role", "")
-        content = msg.get("content", "")
+        msg_type = msg.get("type", "")
+        inner_msg = msg.get("message", {})
 
-        # contentが配列の場合はテキスト部分を結合
+        if not inner_msg:
+            continue
+
+        role = inner_msg.get("role", "")
+        content = inner_msg.get("content", "")
+
+        # isMeta=trueのメッセージはスキップ（システムメッセージ等）
+        if msg.get("isMeta", False):
+            continue
+
+        # contentが配列の場合はテキスト部分を抽出
         if isinstance(content, list):
             text_parts = []
             for part in content:
@@ -88,11 +109,52 @@ def extract_turns(messages: list[dict[str, Any]]) -> list[tuple[str, str]]:
                     text_parts.append(part)
             content = "\n".join(text_parts)
 
-        if role == "user":
-            user_message = content
-        elif role == "assistant" and user_message is not None:
-            turns.append((user_message, content))
-            user_message = None
+        if role == "user" and msg_type == "user":
+            # 新しいユーザーメッセージ
+            if content and content.strip():
+                current_user_message = content
+                current_user_uuid = msg.get("uuid", "")
+        elif role == "assistant" and msg_type == "assistant":
+            # アシスタントメッセージ（同じIDで複数回出現する可能性あり）
+            message_id = inner_msg.get("id", "")
+            if message_id and content and content.strip():
+                if message_id not in assistant_texts:
+                    assistant_texts[message_id] = []
+                    # ユーザーメッセージとの紐付けを記録
+                    if current_user_message and current_user_uuid:
+                        assistant_order.append((current_user_uuid, message_id))
+                assistant_texts[message_id].append(content)
+
+    # ユーザーメッセージとアシスタントメッセージをペアにする
+    user_messages: dict[str, str] = {}
+    for msg in messages:
+        if msg.get("type") == "user":
+            inner_msg = msg.get("message", {})
+            if inner_msg.get("role") == "user":
+                content = inner_msg.get("content", "")
+                if isinstance(content, list):
+                    text_parts = []
+                    for part in content:
+                        if isinstance(part, dict) and part.get("type") == "text":
+                            text_parts.append(part.get("text", ""))
+                        elif isinstance(part, str):
+                            text_parts.append(part)
+                    content = "\n".join(text_parts)
+                if content and content.strip():
+                    user_messages[msg.get("uuid", "")] = content
+
+    # 順序に従ってペアを作成
+    seen_user_uuids = set()
+    for user_uuid, message_id in assistant_order:
+        if user_uuid in seen_user_uuids:
+            continue
+        seen_user_uuids.add(user_uuid)
+
+        user_text = user_messages.get(user_uuid, "")
+        assistant_text = "\n".join(assistant_texts.get(message_id, []))
+
+        if user_text and assistant_text:
+            turns.append((user_text, assistant_text))
 
     return turns
 
@@ -112,8 +174,12 @@ def should_skip(message: str) -> bool:
 
     stripped = message.strip()
 
-    # スラッシュコマンドはスキップ
+    # スラッシュコマンドはスキップ（従来形式）
     if stripped.startswith("/"):
+        return True
+
+    # スラッシュコマンドはスキップ（Claude Code形式: <command-name>/xxx</command-name>）
+    if "<command-name>/" in stripped:
         return True
 
     return False
@@ -148,7 +214,8 @@ def process_turn(
     user_message: str,
     assistant_message: str,
     store: MemoryStore,
-    config: dict[str, Any]
+    config: dict[str, Any],
+    log_func=None
 ) -> dict[str, Any] | None:
     """
     1ターンを処理して記憶を生成
@@ -158,34 +225,46 @@ def process_turn(
         assistant_message: アシスタントの応答
         store: MemoryStoreインスタンス
         config: 設定辞書
+        log_func: ログ関数（デバッグ用）
 
     Returns:
         生成された記憶データ、またはNone
     """
+    def log(msg):
+        if log_func:
+            log_func(msg)
+
     if should_skip(user_message):
+        log(f"Skipped: slash command or empty")
         return None
 
     # LLMで感情分析
     try:
         analysis = analyze_emotion(user_message, assistant_message, config)
-    except Exception:
+    except Exception as e:
         # LLM呼び出しに失敗した場合はスキップ
+        log(f"LLM error: {type(e).__name__}: {e}")
         return None
 
     # 必須フィールドの検証
     required_fields = [
         "emotional_intensity", "emotional_valence", "emotional_arousal",
-        "category", "trigger", "content"
+        "category"
     ]
     for field in required_fields:
         if field not in analysis:
             return None
 
+    # Level 1記憶では元の会話をそのまま保存（要約はLevel 2圧縮時に行う）
+    trigger = user_message
+    content = assistant_message
+
     # Embedding生成
-    embedding_text = f"{analysis['trigger']} {analysis['content']}"
+    embedding_text = f"{trigger} {content}"
     try:
         embedding = get_embedding(embedding_text, config)
-    except Exception:
+    except Exception as e:
+        log(f"Embedding error: {type(e).__name__}: {e}")
         embedding = None
 
     # 減衰係数計算
@@ -220,8 +299,8 @@ def process_turn(
         "category": analysis["category"],
         "keywords": analysis.get("keywords", []),
         "current_level": 1,
-        "trigger": analysis["trigger"],
-        "content": analysis["content"],
+        "trigger": trigger,
+        "content": content,
         "embedding": embedding,
         "relations": [],
         "retention_score": retention_score,
@@ -237,37 +316,77 @@ def process_turn(
 
 def main():
     """メイン処理"""
-    # 標準入出力のエンコーディング設定（Windows対応）
-    sys.stdin = io.TextIOWrapper(sys.stdin.buffer, encoding='utf-8')
-    sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8')
+    # デバッグログファイル
+    log_path = Path(__file__).parent.parent / "data" / "debug.log"
 
-    # Hookメタデータ取得
-    metadata = get_hook_metadata()
-    transcript_path = metadata.get("transcript_path")
+    def log(msg: str):
+        with open(log_path, "a", encoding="utf-8") as f:
+            f.write(f"{datetime.now().isoformat()} {msg}\n")
 
-    if not transcript_path:
-        return
+    try:
+        log("=== SessionEnd Hook started ===")
 
-    # 設定読み込み
-    config = get_config()
+        # 標準入出力のエンコーディング設定（Windows対応）- メタデータ取得前に行う
+        sys.stdin = io.TextIOWrapper(sys.stdin.buffer, encoding='utf-8')
+        sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8')
 
-    # DB接続
-    db_path = Path(__file__).parent.parent / "data" / "memories.db"
-    store = MemoryStore(db_path)
+        # 標準入力から直接読み取ってみる
+        raw_input = sys.stdin.read()
+        log(f"Raw input length: {len(raw_input)}")
+        log(f"Raw input (first 500): {raw_input[:500]}")
 
-    # トランスクリプト読み込み
-    messages = load_transcript(transcript_path)
-    if not messages:
-        return
+        # JSONとしてパース
+        if raw_input.strip():
+            metadata = json.loads(raw_input)
+        else:
+            metadata = {}
+        log(f"Metadata parsed: {json.dumps(metadata, ensure_ascii=False)}")
+        transcript_path = metadata.get("transcript_path")
 
-    # ターン抽出
-    turns = extract_turns(messages)
-    if not turns:
-        return
+        if not transcript_path:
+            log("No transcript_path, exiting")
+            return
 
-    # 各ターンを処理
-    for user_message, assistant_message in turns:
-        process_turn(user_message, assistant_message, store, config)
+        log(f"Transcript path: {transcript_path}")
+
+        # 設定読み込み
+        config = get_config()
+        log("Config loaded")
+
+        # DB接続
+        db_path = Path(__file__).parent.parent / "data" / "memories.db"
+        store = MemoryStore(db_path)
+        log(f"DB connected: {db_path}")
+
+        # トランスクリプト読み込み
+        messages = load_transcript(transcript_path)
+        log(f"Messages loaded: {len(messages)}")
+        if not messages:
+            log("No messages, exiting")
+            return
+
+        # ターン抽出
+        turns = extract_turns(messages)
+        log(f"Turns extracted: {len(turns)}")
+        if not turns:
+            log("No turns, exiting")
+            return
+
+        # 各ターンを処理
+        processed = 0
+        for i, (user_message, assistant_message) in enumerate(turns):
+            log(f"Processing turn {i}: user={user_message[:50]}...")
+            result = process_turn(user_message, assistant_message, store, config, log_func=log)
+            if result:
+                processed += 1
+                log(f"Processed turn: {result['id']}")
+
+        log(f"=== SessionEnd Hook completed: {processed} memories created ===")
+
+    except Exception as e:
+        log(f"ERROR: {type(e).__name__}: {e}")
+        import traceback
+        log(traceback.format_exc())
 
 
 if __name__ == "__main__":
