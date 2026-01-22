@@ -27,7 +27,10 @@ from retention import calculate_retention_score, determine_level, should_compres
 
 def should_run_compression(store: MemoryStore, config: dict[str, Any] | None = None) -> bool:
     """
-    圧縮処理を実行すべきか判定
+    圧縮処理を実行すべきか判定（日付ベース）
+
+    同じ日に既に実行済みならスキップ。
+    日付が変わっていれば実行する。
 
     Args:
         store: MemoryStoreインスタンス
@@ -36,12 +39,6 @@ def should_run_compression(store: MemoryStore, config: dict[str, Any] | None = N
     Returns:
         実行すべきならTrue
     """
-    if config is None:
-        config = get_config()
-
-    compression_config = config.get("compression", {})
-    interval_hours = compression_config.get("interval_hours", 24)
-
     last_run = store.get_state("last_compression_run")
     if not last_run:
         return True
@@ -49,8 +46,8 @@ def should_run_compression(store: MemoryStore, config: dict[str, Any] | None = N
     try:
         last_run_dt = datetime.fromisoformat(last_run)
         now = datetime.now().astimezone()
-        elapsed = now - last_run_dt
-        return elapsed >= timedelta(hours=interval_hours)
+        # 日付が異なれば実行
+        return last_run_dt.date() != now.date()
     except (ValueError, TypeError):
         return True
 
