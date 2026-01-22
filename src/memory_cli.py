@@ -293,6 +293,41 @@ def cmd_search(args: argparse.Namespace) -> None:
         print(f"{mem_id:<25} {date:<12} {level:>2} {score:>7.1f} {archived}{trigger:<40}")
 
 
+def cmd_purge_archive(args: argparse.Namespace) -> None:
+    """アーカイブ記憶を全削除"""
+    store = get_store()
+    archived = store.get_archived_memories()
+
+    if not archived:
+        print("No archived memories to delete.")
+        return
+
+    # 保護記憶を除外
+    to_delete = [m for m in archived if not m.get("protected")]
+    protected_count = len(archived) - len(to_delete)
+
+    if not to_delete:
+        print(f"All {len(archived)} archived memories are protected. Nothing to delete.")
+        return
+
+    print(f"Found {len(to_delete)} archived memories to delete.")
+    if protected_count > 0:
+        print(f"  ({protected_count} protected memories will be preserved)")
+
+    if not args.force:
+        confirm = input("Are you sure you want to delete ALL archived memories? (yes/N): ")
+        if confirm.lower() != "yes":
+            print("Cancelled.")
+            return
+
+    deleted = 0
+    for mem in to_delete:
+        store.delete_memory(mem["id"])
+        deleted += 1
+
+    print(f"Deleted {deleted} archived memories.")
+
+
 def main():
     parser = argparse.ArgumentParser(
         description="Memory Management CLI",
@@ -333,6 +368,10 @@ def main():
     search_parser.add_argument("--active-only", "-a", action="store_true", help="Search active only")
     search_parser.add_argument("--limit", "-n", type=int, default=20, help="Limit results")
 
+    # purge-archive
+    purge_parser = subparsers.add_parser("purge-archive", help="Delete ALL archived memories")
+    purge_parser.add_argument("--force", "-f", action="store_true", help="Skip confirmation")
+
     args = parser.parse_args()
 
     if not args.command:
@@ -347,6 +386,7 @@ def main():
         "unprotect": cmd_unprotect,
         "stats": cmd_stats,
         "search": cmd_search,
+        "purge-archive": cmd_purge_archive,
     }
 
     commands[args.command](args)

@@ -131,6 +131,19 @@ Pending Recall:      3
 Database Size:       2.45 MB
 ```
 
+#### purge-archive - アーカイブ全削除
+
+```powershell
+# 確認付き（"yes"と入力で実行）
+python src/memory_cli.py purge-archive
+
+# 強制実行（確認スキップ）
+python src/memory_cli.py purge-archive --force
+python src/memory_cli.py purge-archive -f
+```
+
+**注意**: 保護された記憶は削除されない。アーカイブが肥大化した際のリセット用。
+
 #### search - キーワード検索
 
 ```powershell
