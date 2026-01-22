@@ -9,9 +9,12 @@ import time
 from typing import Any
 
 import anthropic
-from anthropic import APIError, RateLimitError
+from anthropic import APIError, RateLimitError, APITimeoutError
 
 from config_loader import get_config
+
+# デフォルトタイムアウト（秒）
+DEFAULT_TIMEOUT = 60.0
 
 
 # 感情分析プロンプト
@@ -112,7 +115,7 @@ def _call_claude(
     temperature = llm_config.get("temperature", 0)
     max_tokens = llm_config.get("max_tokens", 1024)
 
-    client = anthropic.Anthropic()
+    client = anthropic.Anthropic(timeout=DEFAULT_TIMEOUT)
 
     for attempt in range(max_retries):
         try:
@@ -129,6 +132,12 @@ def _call_claude(
         except RateLimitError:
             if attempt < max_retries - 1:
                 time.sleep(retry_delay * (attempt + 1))
+                continue
+            raise
+
+        except APITimeoutError:
+            if attempt < max_retries - 1:
+                time.sleep(retry_delay)
                 continue
             raise
 

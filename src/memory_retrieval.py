@@ -123,6 +123,50 @@ def calculate_relevance(
     return base_priority + resonance_bonus
 
 
+def get_related_memories(
+    memory: dict[str, Any],
+    memory_map: dict[str, dict[str, Any]],
+    depth: int = 1,
+    visited: set[str] | None = None
+) -> list[dict[str, Any]]:
+    """
+    関連記憶を再帰的に取得（深度制限付き）
+
+    Args:
+        memory: 起点となる記憶
+        memory_map: ID → 記憶データのマップ
+        depth: 探索深度（1なら直接関連のみ）
+        visited: 訪問済みIDセット（循環防止）
+
+    Returns:
+        関連記憶のリスト
+    """
+    if depth <= 0:
+        return []
+
+    if visited is None:
+        visited = {memory["id"]}
+
+    related = []
+    relations = memory.get("relations", [])
+
+    for rel_id in relations:
+        if rel_id in visited:
+            continue
+
+        related_mem = memory_map.get(rel_id)
+        if related_mem:
+            visited.add(rel_id)
+            related.append(related_mem)
+
+            # 再帰的に関連を取得
+            if depth > 1:
+                deeper = get_related_memories(related_mem, memory_map, depth - 1, visited)
+                related.extend(deeper)
+
+    return related
+
+
 def search_memories(
     query_embedding: list[float],
     memories: list[dict[str, Any]],
@@ -179,12 +223,74 @@ def search_memories(
         return [(mem, is_archived) for _, mem, is_archived in scored[:top_k]]
 
 
-def format_memories(results: list[tuple[dict[str, Any], bool]]) -> str:
+def expand_with_relations(
+    results: list[tuple[dict[str, Any], bool]],
+    memories: list[dict[str, Any]],
+    archive: list[dict[str, Any]],
+    config: dict[str, Any] | None = None
+) -> list[tuple[dict[str, Any], bool, bool]]:
+    """
+    検索結果に関連記憶を追加
+
+    Args:
+        results: (記憶, is_archived) のタプルのリスト
+        memories: アクティブ記憶のリスト
+        archive: アーカイブ記憶のリスト
+        config: 設定辞書
+
+    Returns:
+        (記憶, is_archived, is_related) のタプルのリスト
+    """
+    if config is None:
+        config = get_config()
+
+    relations_config = config.get("relations", {})
+    depth = relations_config.get("relation_traversal_depth", 1)
+
+    if depth <= 0:
+        # 関連展開無効
+        return [(mem, is_archived, False) for mem, is_archived in results]
+
+    # 全記憶のマップを作成
+    memory_map: dict[str, dict[str, Any]] = {}
+    archive_ids: set[str] = set()
+
+    for mem in memories:
+        memory_map[mem["id"]] = mem
+    for mem in archive:
+        memory_map[mem["id"]] = mem
+        archive_ids.add(mem["id"])
+
+    # 既に結果に含まれるIDを記録
+    result_ids = {mem["id"] for mem, _ in results}
+
+    # 関連記憶を収集
+    expanded: list[tuple[dict[str, Any], bool, bool]] = []
+
+    for mem, is_archived in results:
+        # 元の結果を追加
+        expanded.append((mem, is_archived, False))
+
+        # 関連記憶を取得
+        related = get_related_memories(mem, memory_map, depth, visited={mem["id"]})
+
+        for rel_mem in related:
+            if rel_mem["id"] not in result_ids:
+                result_ids.add(rel_mem["id"])
+                is_rel_archived = rel_mem["id"] in archive_ids
+                expanded.append((rel_mem, is_rel_archived, True))
+
+    return expanded
+
+
+def format_memories(
+    results: list[tuple[dict[str, Any], bool]] | list[tuple[dict[str, Any], bool, bool]]
+) -> str:
     """
     記憶を出力形式にフォーマット
 
     Args:
-        results: (記憶, is_archived) のタプルのリスト
+        results: (記憶, is_archived) または (記憶, is_archived, is_related) のタプルのリスト
 
     Returns:
         フォーマットされた文字列
@@ -193,7 +299,14 @@ def format_memories(results: list[tuple[dict[str, Any], bool]]) -> str:
         return ""
 
     lines = ["<memories>"]
-    for mem, is_archived in results:
+    for item in results:
+        # 2要素タプル（旧形式）と3要素タプル（新形式）の両方に対応
+        if len(item) == 3:
+            mem, is_archived, is_related = item
+        else:
+            mem, is_archived = item
+            is_related = False
+
         created = mem.get("created", "unknown")
         # ISO形式から日付部分のみ抽出
         if "T" in created:
@@ -202,9 +315,16 @@ def format_memories(results: list[tuple[dict[str, Any], bool]]) -> str:
         trigger = mem.get("trigger", "")
         content = mem.get("content", "")
         level = mem.get("current_level", 1)
-        archived_mark = "[archived]" if is_archived else ""
 
-        lines.append(f"- [{created}][L{level}]{archived_mark} {trigger} → {content}")
+        # マーカーを組み立て
+        markers = []
+        if is_archived:
+            markers.append("[archived]")
+        if is_related:
+            markers.append("[related]")
+        marker_str = "".join(markers)
+
+        lines.append(f"- [{created}][L{level}]{marker_str} {trigger} → {content}")
 
     lines.append("</memories>")
     return "\n".join(lines)
@@ -247,16 +367,19 @@ def main():
     results = search_memories(query_embedding, memories, archive, config)
 
     if results:
-        # 記憶を出力（ユーザーメッセージに追加される）
-        print(format_memories(results))
+        # 関連記憶を展開
+        expanded = expand_with_relations(results, memories, archive, config)
 
-        # アクティブ記憶の想起フラグを立てる
-        recalled_ids = [mem["id"] for mem, is_archived in results if not is_archived]
+        # 記憶を出力（ユーザーメッセージに追加される）
+        print(format_memories(expanded))
+
+        # アクティブ記憶の想起フラグを立てる（関連記憶も含む）
+        recalled_ids = [mem["id"] for mem, is_archived, _ in expanded if not is_archived]
         if recalled_ids:
             store.mark_recalled(recalled_ids)
 
-        # アーカイブ記憶の復活リクエストフラグを立てる
-        archived_ids = [mem["id"] for mem, is_archived in results if is_archived]
+        # アーカイブ記憶の復活リクエストフラグを立てる（関連記憶も含む）
+        archived_ids = [mem["id"] for mem, is_archived, _ in expanded if is_archived]
         if archived_ids:
             now = datetime.now().astimezone().isoformat()
             for mem_id in archived_ids:

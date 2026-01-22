@@ -1,5 +1,6 @@
 # Database and logs
 data/
+backup/
 
 # Config (may contain API keys)
 config/config.json

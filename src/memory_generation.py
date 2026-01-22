@@ -210,6 +210,33 @@ def calculate_initial_memory_days(config: dict[str, Any] | None = None) -> float
     return 0.5
 
 
+def check_protection_limit(
+    store: MemoryStore,
+    config: dict[str, Any],
+    log_func=None
+) -> bool:
+    """
+    保護記憶の上限をチェック
+
+    Args:
+        store: MemoryStoreインスタンス
+        config: 設定辞書
+        log_func: ログ関数（デバッグ用）
+
+    Returns:
+        保護可能ならTrue、上限に達していればFalse
+    """
+    protection_config = config.get("protection", {})
+    max_protected = protection_config.get("max_protected_memories", 50)
+    current_count = store.count_protected()
+
+    if current_count >= max_protected:
+        if log_func:
+            log_func(f"WARNING: Protected memory limit reached ({current_count}/{max_protected}). New protection request will be skipped.")
+        return False
+    return True
+
+
 def process_turn(
     user_message: str,
     assistant_message: str,
@@ -284,6 +311,14 @@ def process_turn(
         memory_days=memory_days
     )
 
+    # 保護フラグの処理（上限チェック）
+    protected = analysis.get("protected", False)
+    if protected:
+        if not check_protection_limit(store, config, log_func=log):
+            # 上限に達している場合は保護せず通常記憶として保存
+            protected = False
+            log("Protection skipped due to limit, saving as normal memory")
+
     # 記憶データ作成
     memory = {
         "id": generate_memory_id(),
@@ -305,7 +340,7 @@ def process_turn(
         "relations": [],
         "retention_score": retention_score,
         "archived_at": None,
-        "protected": analysis.get("protected", False)
+        "protected": protected
     }
 
     # DBに保存

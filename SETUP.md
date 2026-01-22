@@ -166,7 +166,47 @@ pytest tests/ -v
 
 記憶の圧縮・アーカイブ処理を定期実行する場合：
 
-### Windows（タスクスケジューラ）
+### Windows（タスクスケジューラ） - 推奨
+
+セットアップスクリプトを使用して自動設定できます。
+
+#### 自動セットアップ（推奨）
+
+1. PowerShellを**管理者権限**で開く
+2. プロジェクトディレクトリに移動：
+   ```powershell
+   cd c:\Users\XXX\Desktop\work\LTM_system
+   ```
+3. 実行ポリシーを設定（初回のみ）：
+   ```powershell
+   Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope CurrentUser
+   ```
+4. セットアップスクリプトを実行：
+   ```powershell
+   .\scripts\setup_scheduler.ps1
+   ```
+
+#### スクリプトの機能
+
+- **タスク名**: `LTM_System_Compression`
+- **実行時刻**: `config/config.json` の `compression.schedule_hour` から取得（デフォルト: 午前3時）
+- **StartWhenAvailable**: 有効（PCがスリープ中でスケジュールを逃した場合、起動時に実行）
+- **バッテリー動作**: 許可
+
+#### 確認・管理コマンド
+
+```powershell
+# タスクの確認
+Get-ScheduledTask -TaskName 'LTM_System_Compression'
+
+# 手動実行（テスト用）
+Start-ScheduledTask -TaskName 'LTM_System_Compression'
+
+# タスクの削除
+.\scripts\setup_scheduler.ps1 -Remove
+```
+
+#### 手動セットアップ（代替方法）
 
 1. タスクスケジューラを開く
 2. 「基本タスクの作成」を選択
@@ -175,6 +215,7 @@ pytest tests/ -v
    - プログラム: `<venv>/Scripts/python.exe`
    - 引数: `<project>/src/compression.py`
    - 開始: `<project>`
+5. プロパティで「StartWhenAvailable」を有効化
 
 ### macOS/Linux（cron）
 

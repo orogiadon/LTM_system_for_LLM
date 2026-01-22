@@ -321,6 +321,19 @@ class MemoryStore:
             ''').fetchall()
             return {row['current_level']: row['count'] for row in rows}
 
+    def count_protected(self) -> int:
+        """
+        保護記憶の件数を取得
+
+        Returns:
+            保護記憶の件数
+        """
+        with self._connect() as conn:
+            row = conn.execute(
+                'SELECT COUNT(*) as count FROM memories WHERE protected = 1'
+            ).fetchone()
+            return row['count']
+
     def _encode_embedding(self, embedding: list[float] | None) -> bytes | None:
         """EmbeddingをBLOBに変換"""
         if embedding is None:

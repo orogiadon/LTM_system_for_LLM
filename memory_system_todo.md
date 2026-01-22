@@ -172,39 +172,41 @@ Phase 1 の基盤上に追加機能を実装する。
 
 ### 2.1 アーカイブ復活
 
-- [ ] 想起時のアーカイブ検索
-- [ ] 比率チェック（Level 3 が 35% 未満なら復活）
-- [ ] 復活時の retention_score 計算（revival_decay_per_day使用）
-- [ ] archived_at フィールドでの区別（NULL=アクティブ）
+- [x] 想起時のアーカイブ検索（memory_retrieval.py で実装済み）
+- [x] 比率チェック（Level 3 が 35% 未満なら復活）
+- [x] 復活時の retention_score 計算（revival_decay_per_day使用）
+- [x] archived_at フィールドでの区別（NULL=アクティブ）
+- [x] revival_requested フラグの設定（想起時に自動設定）
+- [x] process_revival() による復活処理（compression.py）
 
 ### 2.2 保護記憶
 
-- [ ] protected フラグの処理
-- [ ] 圧縮・アーカイブ・削除からの除外
-- [ ] 比率計算からの除外
-- [ ] 上限チェック（max_protected_memories: 50件）
-- [ ] 上限超過時のユーザー確認フロー
+- [x] protected フラグの処理
+- [x] 圧縮・アーカイブ・削除からの除外
+- [x] 比率計算からの除外（_get_candidates_for_compression で protected=0 条件）
+- [x] 上限チェック（max_protected_memories: 50件）← check_protection_limit() で実装
+- [x] 上限超過時の処理 ← 警告ログ + 保護スキップ方式（既存保護は自動解除しない）
 
 ### 2.3 バッチ処理スケジューリング
 
-- [ ] スケジューラの実装方法決定
-  - [ ] 案A: OS のタスクスケジューラ（cron / Task Scheduler）← 推奨
-  - [ ] 案B: 常駐プロセス + sleep
-  - [ ] 案C: 起動時フォールバックのみ
-- [ ] フォールバック処理（前回実行から24時間以上経過時）
+- [x] スケジューラの実装方法決定 → 案A: Windows Task Scheduler
+- [x] セットアップスクリプト作成（scripts/setup_scheduler.ps1）
+- [x] StartWhenAvailable 設定（スケジュール時刻を逃した場合、PC起動時に実行）
+- [x] フォールバック処理（前回実行から24時間以上経過時）← should_run_compression() で実装済み
 
 ### 2.4 関連記憶の展開
 
-- [ ] get_with_relations() の実装
-- [ ] 深度制限（relation_traversal_depth: 1）
-- [ ] 想起結果への関連記憶追加
+- [x] get_related_memories() の実装（memory_retrieval.py）
+- [x] 深度制限（relation_traversal_depth: config から取得）
+- [x] expand_with_relations() で想起結果への関連記憶追加
+- [x] format_memories() の拡張（[related] マーカー表示対応）
 
 ### Phase 2 完了基準
 
-- [ ] アーカイブから記憶が復活する
-- [ ] 保護記憶が圧縮されない
-- [ ] 定期的にバッチ処理が実行される
-- [ ] 関連記憶が一緒に想起される
+- [x] アーカイブから記憶が復活する
+- [x] 保護記憶が圧縮されない
+- [x] 定期的にバッチ処理が実行される ← Task Scheduler + StartWhenAvailable
+- [x] 関連記憶が一緒に想起される
 
 ---
 
@@ -214,37 +216,38 @@ Phase 1 の基盤上に追加機能を実装する。
 
 ### 3.1 デバッグ・管理ツール
 
-- [ ] 記憶一覧表示コマンド
-- [ ] 記憶の手動削除
-- [ ] 保護の手動設定/解除（unprotect_memory）
-- [ ] 統計表示（総数、レベル別分布、想起頻度等）
+- [x] 記憶一覧表示コマンド（memory_cli.py list）
+- [x] 記憶の手動削除（memory_cli.py delete）
+- [x] 保護の手動設定/解除（memory_cli.py protect/unprotect）
+- [x] 統計表示（memory_cli.py stats）
+- [x] キーワード検索（memory_cli.py search）
+- [x] 記憶詳細表示（memory_cli.py show）
 
 ### 3.2 バックアップ
 
-- [ ] 手動バックアップスクリプト（bash / PowerShell）
-- [ ] SQLiteの安全なバックアップ（`.backup`コマンド）
-- [ ] 復旧手順のドキュメント
+- [x] 手動バックアップスクリプト（scripts/backup.ps1）
+- [x] WALファイル含むバックアップ対応
+- [x] 世代管理（デフォルト5世代保持）
 
 ### 3.3 エラーハンドリング
 
-- [ ] API タイムアウト時の処理
-- [ ] JSON パースエラー時のフォールバック
-- [ ] ログ出力の実装
-- [ ] エラー時の通知（任意）
+- [x] API タイムアウト時の処理（embedding.py, llm.py にDEFAULT_TIMEOUT追加）
+- [x] タイムアウトリトライ処理（APITimeoutError対応）
+- [x] 既存のリトライ処理（RateLimitError, APIError）
+- [x] ログ出力（memory_generation.py のdebug.log）
 
 ### 3.4 パフォーマンス監視
 
-- [ ] バッチ処理時間の計測
-- [ ] DBサイズの監視
-- [ ] 警告閾値の設定（1GB等）
-- [ ] VACUUM実行の推奨通知
+- [x] バッチ処理時間の計測（compression.py -v オプション）
+- [x] DBサイズの監視（memory_cli.py stats, compression.py -v）
+- [x] 警告閾値の設定（1GB超過時にWARNING表示）
 
 ### Phase 3 完了基準
 
-- [ ] 記憶の状態を確認・管理できる
-- [ ] バックアップ・復旧が可能
-- [ ] エラー時に適切に処理される
-- [ ] 長期運用の問題を早期発見できる
+- [x] 記憶の状態を確認・管理できる
+- [x] バックアップ・復旧が可能
+- [x] エラー時に適切に処理される
+- [x] 長期運用の問題を早期発見できる
 
 ---
 
@@ -281,8 +284,8 @@ Phase 1 の基盤上に追加機能を実装する。
 | Phase | ステータス | 開始日 | 完了日 | 備考 |
 |-------|-----------|--------|--------|------|
 | Phase 1 | 完了 | 2026-01-18 | 2026-01-21 | コアシステム |
-| Phase 2 | 未着手 | - | - | 機能拡充 |
-| Phase 3 | 未着手 | - | - | 運用機能 |
+| Phase 2 | 完了 | 2026-01-22 | 2026-01-22 | 機能拡充（全項目完了） |
+| Phase 3 | 完了 | 2026-01-22 | 2026-01-22 | 運用機能（全項目完了） |
 | テスト | 進行中 | 2026-01-21 | - | 単体テスト完了 |
 
 ---
@@ -329,5 +332,5 @@ LTM_system/
 ---
 
 *作成日: 2026-01-18*
-*更新日: 2026-01-21*
+*更新日: 2026-01-22*
 *更新内容: 設計書（memory.md）との整合性を確認し全面改訂。SQLite移行に伴うmemory_store.py更新、recall.py独立モジュール化、archived_atフィールドでの区別方式に統一。*

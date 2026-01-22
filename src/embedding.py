@@ -7,9 +7,12 @@ OpenAI APIを使用してテキストをベクトル化する。
 import time
 from typing import Any
 
-from openai import OpenAI, APIError, RateLimitError
+from openai import OpenAI, APIError, RateLimitError, APITimeoutError
 
 from config_loader import get_config
+
+# デフォルトタイムアウト（秒）
+DEFAULT_TIMEOUT = 30.0
 
 
 def get_embedding(
@@ -39,7 +42,7 @@ def get_embedding(
     embedding_config = config.get("embedding", {})
     model = embedding_config.get("model", "text-embedding-3-small")
 
-    client = OpenAI()
+    client = OpenAI(timeout=DEFAULT_TIMEOUT)
 
     for attempt in range(max_retries):
         try:
@@ -52,6 +55,12 @@ def get_embedding(
         except RateLimitError:
             if attempt < max_retries - 1:
                 time.sleep(retry_delay * (attempt + 1))
+                continue
+            raise
+
+        except APITimeoutError:
+            if attempt < max_retries - 1:
+                time.sleep(retry_delay)
                 continue
             raise
 
@@ -95,7 +104,7 @@ def get_embeddings_batch(
     embedding_config = config.get("embedding", {})
     model = embedding_config.get("model", "text-embedding-3-small")
 
-    client = OpenAI()
+    client = OpenAI(timeout=DEFAULT_TIMEOUT)
 
     for attempt in range(max_retries):
         try:
@@ -110,6 +119,12 @@ def get_embeddings_batch(
         except RateLimitError:
             if attempt < max_retries - 1:
                 time.sleep(retry_delay * (attempt + 1))
+                continue
+            raise
+
+        except APITimeoutError:
+            if attempt < max_retries - 1:
+                time.sleep(retry_delay)
                 continue
             raise
 

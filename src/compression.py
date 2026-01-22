@@ -524,16 +524,51 @@ def run_compression_batch(
     return results
 
 
+def get_db_stats() -> dict[str, Any]:
+    """
+    データベースの統計情報を取得
+
+    Returns:
+        統計情報の辞書
+    """
+    db_path = Path(__file__).parent.parent / "data" / "memories.db"
+    store = MemoryStore(db_path)
+
+    stats = {
+        "total": store.count_memories(include_archived=True),
+        "active": store.count_memories(include_archived=False),
+        "by_level": store.count_by_level(),
+        "protected": store.count_protected(),
+        "db_size_mb": 0.0
+    }
+
+    if db_path.exists():
+        stats["db_size_mb"] = db_path.stat().st_size / 1024 / 1024
+
+    return stats
+
+
 if __name__ == "__main__":
     # コマンドラインから実行可能
     import sys
+    import time as time_module
 
     force = "--force" in sys.argv or "-f" in sys.argv
+    verbose = "--verbose" in sys.argv or "-v" in sys.argv
 
+    # 処理前の統計
+    if verbose:
+        pre_stats = get_db_stats()
+        print(f"Pre-batch stats: {pre_stats['active']} active, {pre_stats['db_size_mb']:.2f} MB")
+
+    # 処理時間計測
+    start_time = time_module.time()
     result = run_compression_batch(force=force)
+    elapsed = time_module.time() - start_time
 
     if result["executed"]:
         print("Compression batch completed:")
+        print(f"  Elapsed time: {elapsed:.2f}s")
         print(f"  Recalled processed: {result['recalled_processed']}")
         print(f"  Memory days updated: {result['memory_days_updated']}")
         print(f"  Retention scores updated: {result['retention_scores_updated']}")
@@ -542,5 +577,18 @@ if __name__ == "__main__":
         print(f"  Ratio enforcement: {result['ratio_enforcement']}")
         print(f"  Relations: {result['relations']}")
         print(f"  Deleted: {result['deleted']}")
+
+        # 処理後の統計
+        if verbose:
+            post_stats = get_db_stats()
+            print(f"\nPost-batch stats:")
+            print(f"  Active: {post_stats['active']} memories")
+            print(f"  By level: {post_stats['by_level']}")
+            print(f"  Protected: {post_stats['protected']}")
+            print(f"  DB size: {post_stats['db_size_mb']:.2f} MB")
+
+            # 警告（1GB超過時）
+            if post_stats['db_size_mb'] > 1024:
+                print("\n  WARNING: Database size exceeds 1GB. Consider running VACUUM.")
     else:
         print(f"Skipped: {result['skipped_reason']}")
