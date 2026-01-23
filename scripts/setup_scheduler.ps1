@@ -40,7 +40,19 @@ $TaskName = "LTM_System_Compression"
 $TaskDescription = "Long-term Memory System - Daily compression batch"
 $ScriptPath = Join-Path $ProjectRoot "src\compression.py"
 $ConfigPath = Join-Path $ProjectRoot "config\config.json"
-$PythonPath = "python"
+
+# Find Python path (prefer venv, fallback to system)
+$VenvPython = Join-Path $ProjectRoot "venv\Scripts\python.exe"
+if (Test-Path $VenvPython) {
+    $PythonPath = $VenvPython
+} else {
+    # Fallback to system Python (full path)
+    $PythonPath = (Get-Command python -ErrorAction SilentlyContinue).Source
+    if (-not $PythonPath) {
+        Write-Host "Error: Python not found. Create venv or add Python to PATH" -ForegroundColor Red
+        exit 1
+    }
+}
 
 # Read schedule hour from config
 $ScheduleHour = 3
@@ -71,6 +83,7 @@ if ($Remove) {
 Write-Host "Setting up scheduled task: $TaskName" -ForegroundColor Cyan
 Write-Host "  Script: $ScriptPath"
 Write-Host "  Python: $PythonPath"
+Write-Host "  WorkingDir: $ProjectRoot"
 Write-Host "  Schedule: Daily at ${ScheduleHour}:00"
 
 # Check script exists
@@ -86,8 +99,8 @@ if ($existingTask) {
     Unregister-ScheduledTask -TaskName $TaskName -Confirm:$false
 }
 
-# Action: Run Python script
-$Action = New-ScheduledTaskAction -Execute $PythonPath -Argument "`"$ScriptPath`""
+# Action: Run Python script with working directory
+$Action = New-ScheduledTaskAction -Execute $PythonPath -Argument "`"$ScriptPath`"" -WorkingDirectory $ProjectRoot
 
 # Trigger: Daily at scheduled hour
 $Trigger = New-ScheduledTaskTrigger -Daily -At "${ScheduleHour}:00"
