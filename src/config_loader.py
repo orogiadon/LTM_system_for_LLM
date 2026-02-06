@@ -44,10 +44,6 @@ DEFAULT_CONFIG = {
     },
 
     "compression": {
-        "level1_ratio": 0.15,
-        "level2_ratio": 0.30,
-        "level3_ratio": 0.35,
-        "delete_ratio": 0.20,
         "schedule_hour": 3,
         "interval_hours": 24
     },

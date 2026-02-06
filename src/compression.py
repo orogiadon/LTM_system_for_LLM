@@ -7,7 +7,6 @@ compression.py - 圧縮・アーカイブ処理モジュール（日次バッチ
 - retention_score再計算
 - レベル間圧縮
 - アーカイブ復活
-- 比率強制処理
 - 関連付け処理
 - アーカイブ自動削除
 """
@@ -217,23 +216,6 @@ def process_revival(store: MemoryStore, config: dict[str, Any] | None = None) ->
     revival_decay = archive_config.get("revival_decay_per_day", 0.995)
     revival_margin = archive_config.get("revival_min_margin", 3.0)
 
-    compression_config = config.get("compression", {})
-    level3_ratio = compression_config.get("level3_ratio", 0.35)
-
-    # 現在の比率をチェック
-    level_counts = store.count_by_level()
-    total_active = sum(level_counts.values())
-
-    if total_active == 0:
-        return 0
-
-    current_l3_count = level_counts.get(3, 0)
-    current_l3_ratio = current_l3_count / total_active
-
-    # Level 3 が目標比率以上なら復活しない
-    if current_l3_ratio >= level3_ratio:
-        return 0
-
     # revival_requested = 1 の記憶を取得
     with store.connection() as conn:
         rows = conn.execute('''
@@ -278,109 +260,7 @@ def process_revival(store: MemoryStore, config: dict[str, Any] | None = None) ->
         })
         revived_count += 1
 
-        # 比率を再チェック
-        current_l3_ratio = (current_l3_count + revived_count) / (total_active + revived_count)
-        if current_l3_ratio >= level3_ratio:
-            break
-
     return revived_count
-
-
-def process_ratio_enforcement(store: MemoryStore, config: dict[str, Any] | None = None) -> dict[str, int]:
-    """
-    比率強制処理
-
-    Args:
-        store: MemoryStoreインスタンス
-        config: 設定辞書
-
-    Returns:
-        強制圧縮結果の辞書
-    """
-    if config is None:
-        config = get_config()
-
-    compression_config = config.get("compression", {})
-    level1_ratio = compression_config.get("level1_ratio", 0.15)
-    level2_ratio = compression_config.get("level2_ratio", 0.30)
-    level3_ratio = compression_config.get("level3_ratio", 0.35)
-
-    results = {"l1_forced": 0, "l2_forced": 0, "l3_forced": 0}
-
-    level_counts = store.count_by_level()
-    total_active = sum(level_counts.values())
-
-    if total_active == 0:
-        return results
-
-    # Level 1 超過チェック
-    l1_count = level_counts.get(1, 0)
-    l1_target = int(total_active * level1_ratio)
-
-    if l1_count > l1_target:
-        excess = l1_count - l1_target
-        memories = _get_candidates_for_compression(store, 1)
-
-        for memory in memories[:excess]:
-            if memory.get("protected", False):
-                continue
-            compress_memory(memory, 2, store, config)
-            results["l1_forced"] += 1
-
-    # Level 2 超過チェック
-    level_counts = store.count_by_level()
-    total_active = sum(level_counts.values())
-    l2_count = level_counts.get(2, 0)
-    l2_target = int(total_active * level2_ratio)
-
-    if l2_count > l2_target:
-        excess = l2_count - l2_target
-        memories = _get_candidates_for_compression(store, 2)
-
-        for memory in memories[:excess]:
-            if memory.get("protected", False):
-                continue
-            compress_memory(memory, 3, store, config)
-            results["l2_forced"] += 1
-
-    # Level 3 超過チェック
-    level_counts = store.count_by_level()
-    total_active = sum(level_counts.values())
-    l3_count = level_counts.get(3, 0)
-    l3_target = int(total_active * level3_ratio)
-
-    if l3_count > l3_target:
-        excess = l3_count - l3_target
-        memories = _get_candidates_for_compression(store, 3)
-
-        for memory in memories[:excess]:
-            if memory.get("protected", False):
-                continue
-            compress_memory(memory, 4, store, config)
-            results["l3_forced"] += 1
-
-    return results
-
-
-def _get_candidates_for_compression(store: MemoryStore, level: int) -> list[dict[str, Any]]:
-    """
-    圧縮候補を取得（retention_score → created → recall_count の順でソート）
-
-    Args:
-        store: MemoryStoreインスタンス
-        level: 対象レベル
-
-    Returns:
-        圧縮候補のリスト（優先度順）
-    """
-    with store.connection() as conn:
-        rows = conn.execute('''
-            SELECT * FROM memories
-            WHERE current_level = ? AND archived_at IS NULL AND protected = 0
-            ORDER BY retention_score ASC, created ASC, recall_count ASC
-        ''', (level,)).fetchall()
-
-    return [store._row_to_dict(row) for row in rows]
 
 
 def process_auto_delete(store: MemoryStore, config: dict[str, Any] | None = None) -> int:
@@ -479,7 +359,6 @@ def run_compression_batch(
         "retention_scores_updated": 0,
         "compression": {},
         "revived": 0,
-        "ratio_enforcement": {},
         "relations": {},
         "deleted": 0
     }
@@ -506,16 +385,13 @@ def run_compression_batch(
     # 5. アーカイブ復活処理
     results["revived"] = process_revival(store, config)
 
-    # 6. 比率強制処理
-    results["ratio_enforcement"] = process_ratio_enforcement(store, config)
-
-    # 7. 関連付け処理
+    # 6. 関連付け処理
     results["relations"] = process_relations(store, config=config)
 
-    # 8. アーカイブ自動削除
+    # 7. アーカイブ自動削除
     results["deleted"] = process_auto_delete(store, config)
 
-    # 9. last_compression_run更新
+    # 8. last_compression_run更新
     store.set_state("last_compression_run", datetime.now().astimezone().isoformat())
 
     return results
@@ -571,7 +447,6 @@ if __name__ == "__main__":
         print(f"  Retention scores updated: {result['retention_scores_updated']}")
         print(f"  Compression: {result['compression']}")
         print(f"  Revived: {result['revived']}")
-        print(f"  Ratio enforcement: {result['ratio_enforcement']}")
         print(f"  Relations: {result['relations']}")
         print(f"  Deleted: {result['deleted']}")
 
