@@ -349,6 +349,47 @@ def process_turn(
     return memory
 
 
+def write_completion_marker(
+    count: int,
+    transcript_path: str,
+    log_func=None
+) -> None:
+    """完了マーカーファイルを書き込む"""
+    marker_path = Path(__file__).parent.parent / "data" / "last_write.json"
+    marker_data = {
+        "completed_at": datetime.now().astimezone().isoformat(),
+        "success": True,
+        "count": count,
+        "transcript_path": transcript_path
+    }
+    try:
+        marker_path.write_text(
+            json.dumps(marker_data, ensure_ascii=False),
+            encoding="utf-8"
+        )
+        if log_func:
+            log_func(f"Completion marker written: {marker_path}")
+    except Exception as e:
+        if log_func:
+            log_func(f"Failed to write marker: {e}")
+
+
+def notify_completion(count: int, log_func=None) -> None:
+    """完了通知を送信する"""
+    try:
+        from plyer import notification
+        notification.notify(
+            title="LTM System",
+            message=f"記憶書き込み完了: {count}件",
+            timeout=5
+        )
+        if log_func:
+            log_func("Notification sent")
+    except Exception as e:
+        if log_func:
+            log_func(f"Notification failed: {e}")
+
+
 def main():
     """メイン処理"""
     # デバッグログファイル
@@ -418,10 +459,28 @@ def main():
 
         log(f"=== SessionEnd Hook completed: {processed} memories created ===")
 
+        # 完了マーカーファイル書き込み
+        write_completion_marker(processed, transcript_path, log)
+
+        # 完了通知
+        notify_completion(processed, log)
+
     except Exception as e:
         log(f"ERROR: {type(e).__name__}: {e}")
         import traceback
         log(traceback.format_exc())
+
+        # エラー時もマーカーに記録
+        marker_path = Path(__file__).parent.parent / "data" / "last_write.json"
+        try:
+            marker_path.write_text(json.dumps({
+                "completed_at": datetime.now().astimezone().isoformat(),
+                "success": False,
+                "error": f"{type(e).__name__}: {e}",
+                "count": 0
+            }, ensure_ascii=False), encoding="utf-8")
+        except Exception:
+            pass
 
 
 if __name__ == "__main__":
