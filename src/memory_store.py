@@ -149,6 +149,15 @@ class MemoryStore:
             ).fetchall()
             return [self._row_to_dict(row) for row in rows]
 
+    def get_protected_memories(self, order_by: str = "created") -> list[dict[str, Any]]:
+        """保護記憶を取得（アクティブのみ）"""
+        order = "created DESC" if order_by == "created" else "retention_score DESC"
+        with self._connect() as conn:
+            rows = conn.execute(
+                f'SELECT * FROM memories WHERE protected = 1 AND archived_at IS NULL ORDER BY {order}'
+            ).fetchall()
+            return [self._row_to_dict(row) for row in rows]
+
     def get_archived_memories(self) -> list[dict[str, Any]]:
         """アーカイブ記憶を取得"""
         with self._connect() as conn:

@@ -5,5 +5,8 @@ anthropic>=0.40.0
 openai>=1.50.0
 numpy>=1.26.0
 
+# TUI
+textual>=0.50.0
+
 # Testing
 pytest>=8.0.0

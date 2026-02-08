@@ -368,6 +368,9 @@ def main():
     search_parser.add_argument("--active-only", "-a", action="store_true", help="Search active only")
     search_parser.add_argument("--limit", "-n", type=int, default=20, help="Limit results")
 
+    # tui
+    subparsers.add_parser("tui", help="Open protected memory management TUI")
+
     # purge-archive
     purge_parser = subparsers.add_parser("purge-archive", help="Delete ALL archived memories")
     purge_parser.add_argument("--force", "-f", action="store_true", help="Skip confirmation")
@@ -377,6 +380,11 @@ def main():
     if not args.command:
         parser.print_help()
         sys.exit(1)
+
+    if args.command == "tui":
+        from memory_tui import main as tui_main
+        tui_main()
+        return
 
     commands = {
         "list": cmd_list,
