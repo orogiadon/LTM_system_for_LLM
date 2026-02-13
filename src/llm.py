@@ -86,6 +86,31 @@ KEYWORD_EXTRACT_PROMPT = """以下のテキストから重要なキーワード�
 ```"""
 
 
+# クエリ分類プロンプト（想起時のカテゴリ・感情分類）
+QUERY_CLASSIFY_PROMPT = """以下のユーザー発言を分析し、指定されたJSON形式で結果を返してください。
+
+## ユーザー発言
+{query}
+
+## 出力形式
+以下のJSON形式で出力してください。余計な説明は不要です。
+
+```json
+{{
+  "category": "<casual/work/decision/emotional>",
+  "valence": "<positive/negative/neutral>",
+  "arousal": <0-100の整数>,
+  "tags": ["<感情タグ1>", "<感情タグ2>"]
+}}
+```
+
+## 判定基準
+- category: 雑談・日常=casual、仕事・技術=work、重要な意思決定=decision、感情的な話題=emotional
+- valence: 発言のポジティブ/ネガティブ/ニュートラル
+- arousal: 感情の覚醒度（穏やか=20-30、普通=40-60、興奮=70-90）
+- tags: 発言に含まれる感情を表すタグ（例: 喜び、不安、感謝）"""
+
+
 def _call_claude(
     prompt: str,
     config: dict[str, Any] | None = None,
@@ -174,6 +199,148 @@ def _parse_json_response(text: str) -> dict[str, Any]:
         text = text[start:end].strip()
 
     return json.loads(text)
+
+
+def analyze_emotion_batch(
+    turns: list[tuple[str, str]],
+    config: dict[str, Any] | None = None,
+    max_retries: int = 2,
+    poll_interval: float = 5.0,
+    log_func=None
+) -> dict[int, dict[str, Any]]:
+    """
+    複数ターンの感情分析をMessage Batch APIで一括実行
+
+    Args:
+        turns: (user_message, assistant_message) のリスト
+        config: 設定辞書
+        max_retries: 失敗したリクエストのリトライ回数（個別フォールバック）
+        poll_interval: バッチ完了ポーリング間隔（秒）
+        log_func: ログ関数
+
+    Returns:
+        {ターンインデックス: 感情分析結果} の辞書
+    """
+    if not turns:
+        return {}
+
+    if config is None:
+        config = get_config()
+
+    def log(msg):
+        if log_func:
+            log_func(msg)
+
+    llm_config = config.get("llm", {})
+    model = llm_config.get("model", "claude-3-5-haiku-20241022")
+    temperature = llm_config.get("temperature", 0)
+    max_tokens = llm_config.get("max_tokens", 1024)
+
+    client = anthropic.Anthropic(timeout=DEFAULT_TIMEOUT)
+
+    # バッチリクエスト構築
+    requests = []
+    for i, (user_msg, assistant_msg) in enumerate(turns):
+        prompt = EMOTION_ANALYSIS_PROMPT.format(
+            user_message=user_msg,
+            assistant_message=assistant_msg
+        )
+        requests.append({
+            "custom_id": f"turn_{i}",
+            "params": {
+                "model": model,
+                "max_tokens": max_tokens,
+                "temperature": temperature,
+                "messages": [{"role": "user", "content": prompt}]
+            }
+        })
+
+    log(f"Submitting emotion analysis batch: {len(requests)} requests")
+
+    batch = client.messages.batches.create(requests=requests)
+    log(f"Batch created: {batch.id}")
+
+    # ポーリングで完了待ち
+    while batch.processing_status != "ended":
+        time.sleep(poll_interval)
+        batch = client.messages.batches.retrieve(batch.id)
+        counts = batch.request_counts
+        log(f"Batch {batch.id}: {batch.processing_status} "
+            f"(succeeded={counts.succeeded}, errored={counts.errored}, "
+            f"processing={counts.processing})")
+
+    # 結果収集
+    results = {}
+    failed_indices = []
+
+    for result in client.messages.batches.results(batch.id):
+        idx = int(result.custom_id.split("_")[1])
+        if result.result.type == "succeeded":
+            try:
+                text = result.result.message.content[0].text
+                parsed = _parse_json_response(text)
+                results[idx] = parsed
+            except Exception as e:
+                log(f"Parse error for turn_{idx}: {e}")
+                failed_indices.append(idx)
+        else:
+            log(f"Batch error for turn_{idx}: {result.result.type}")
+            failed_indices.append(idx)
+
+    log(f"Batch completed: {len(results)} succeeded, {len(failed_indices)} failed")
+
+    # 失敗分を個別リクエストでリトライ
+    for retry_attempt in range(max_retries):
+        if not failed_indices:
+            break
+        log(f"Retrying {len(failed_indices)} failed requests "
+            f"(attempt {retry_attempt + 1}/{max_retries})")
+        still_failed = []
+        for idx in failed_indices:
+            user_msg, assistant_msg = turns[idx]
+            try:
+                analysis = analyze_emotion(user_msg, assistant_msg, config)
+                results[idx] = analysis
+                log(f"Retry succeeded for turn_{idx}")
+            except Exception as e:
+                log(f"Retry failed for turn_{idx}: {e}")
+                still_failed.append(idx)
+        failed_indices = still_failed
+
+    if failed_indices:
+        log(f"WARNING: {len(failed_indices)} turns permanently failed: {failed_indices}")
+
+    return results
+
+
+def classify_query(
+    query: str,
+    config: dict[str, Any] | None = None
+) -> dict[str, Any]:
+    """
+    ユーザー発言のカテゴリと感情状態を分類する（想起時に使用）
+
+    Args:
+        query: ユーザーの発言
+        config: 設定辞書
+
+    Returns:
+        分類結果の辞書:
+            - category: casual/work/decision/emotional
+            - valence: positive/negative/neutral
+            - arousal: 0-100
+            - tags: 感情タグのリスト
+    """
+    prompt = QUERY_CLASSIFY_PROMPT.format(query=query)
+    response = _call_claude(prompt, config)
+    result = _parse_json_response(response)
+
+    # バリデーション: categoryが不正な場合はcasualにフォールバック
+    valid_categories = {"casual", "work", "decision", "emotional"}
+    if result.get("category") not in valid_categories:
+        result["category"] = "casual"
+
+    return result
 
 
 def analyze_emotion(

@@ -45,8 +45,9 @@
   },
 
   "retrieval": {
-    "top_k": 5,
-    "relevance_threshold": 5.0
+    "top_k": 10,
+    "relevance_threshold": 0.5,
+    "category_boost_beta": 2.0
   },
 
   "archive": {

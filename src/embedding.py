@@ -14,6 +14,26 @@ from config_loader import get_config
 # デフォルトタイムアウト（秒）
 DEFAULT_TIMEOUT = 30.0
 
+# Embedding APIのトークン制限に対する安全マージン付き最大文字数
+# text-embedding-3-small: 8191トークン上限、日本語1文字≒1トークンで概算
+MAX_EMBEDDING_CHARS = 8000
+
+
+def truncate_for_embedding(text: str, max_chars: int = MAX_EMBEDDING_CHARS) -> str:
+    """
+    Embeddingのトークン制限を超えないようにテキストを切り詰める
+
+    Args:
+        text: 入力テキスト
+        max_chars: 最大文字数（日本語1文字≒1トークンで概算）
+
+    Returns:
+        切り詰められたテキスト
+    """
+    if len(text) <= max_chars:
+        return text
+    return text[:max_chars]
+
 
 def get_embedding(
     text: str,

@@ -2,6 +2,9 @@
 data/
 backup/
 
+# Analysis (local scoring analysis data)
+analysis/
+
 # Config (may contain API keys)
 config/config.json
 

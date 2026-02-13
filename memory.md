@@ -1276,9 +1276,17 @@ keyword_match = cos_similarity(input_embedding, memory_embedding)
 
 ※ `keywords` フィールドは補助的なインデックスとして残すが、主な検索はベクトル類似度で行う。
 
-### 2. カテゴリ参照
+### 2. クエリ分類（LLM）
 
-類似タスク実行時に同一カテゴリの記憶を優先検索。
+想起のたびにLLMでユーザー発言を分類し、カテゴリと感情状態を取得する。
+
+```
+[LLM 1回] → query_category (casual/work/decision/emotional)
+           → current_emotion {valence, arousal, tags}
+```
+
+分類結果はカテゴリブースト（同一カテゴリの記憶を優先）と感情共鳴ボーナスに使用される。
+分類に失敗した場合はブーストなし・共鳴なしにフォールバックする。
 
 ### 3. 時系列参照
 
@@ -1286,21 +1294,7 @@ keyword_match = cos_similarity(input_embedding, memory_embedding)
 
 ### 4. 感情共鳴
 
-現在の感情状態と類似した感情分類を持つ記憶を想起しやすくする。
-
-#### 現在の感情の取得
-
-**直前の記憶から引き継ぎ**方式を採用。
-
-```
-current_emotion = 直前に生成または想起された記憶の感情情報
-                  {valence, arousal, tags}
-
-セッション開始時: current_emotion = null（感情共鳴なし）
-想起発生後: current_emotion = 想起された記憶の感情情報
-```
-
-これによりセッション中の感情の流れが自然に引き継がれる。
+LLMで分類された現在の感情状態と類似した感情分類を持つ記憶を想起しやすくする。
 
 #### 感情共鳴の判定
 
@@ -1324,20 +1318,43 @@ tags_bonus = (重複タグ数 / max(current_tags数, memory_tags数)) × 0.5
 
 ## 参照優先度の計算
 
-```
-基本優先度 = retention_score × キーワード一致度 × (1 + 0.1 × recall_count)
+### カテゴリ内正規化
 
-参照優先度 = 基本優先度 + α × 感情共鳴スコア × retention_score
+retention_score はカテゴリ間で大きな差がある（emotional: 75-85, work: 20-30）。
+この差を解消するため、カテゴリ内のZスコア正規化を適用する。
+
+```
+μ_cat = カテゴリ内の retention_score の平均
+σ_cat = カテゴリ内の retention_score の標準偏差
+
+normalized_retention = (retention_score - μ_cat) / σ_cat
+```
+
+μ, σ は想起のたびに全記憶から動的に計算する（SQLite GROUP BY で < 1ms）。
+
+### スコアリング式
+
+```
+[LLM 1回] → query_category, current_emotion
+
+category_boost = β (カテゴリ一致時) / 1.0 (不一致時)
+
+基本優先度 = normalized_retention × similarity² × (1 + 0.1 × recall_count) × category_boost
+
+参照優先度 = 基本優先度 + α × 感情共鳴スコア × normalized_retention
 ```
 
 | パラメータ | 値 | 説明 |
 |-----------|-----|------|
+| β | 2.0 | カテゴリブースト係数（一致時に2倍） |
 | α | 0.3（調整可能） | 感情共鳴の重み係数 |
 
-- 保持スコアが高い記憶が優先される
-- キーワードの一致度が高いほど優先される
-- 頻繁に想起される記憶はさらに想起されやすくなる（富める者がより富む）
-- 現在の感情状態と近い記憶が優先される（感情共鳴）
+### 設計根拠
+
+- **カテゴリ内正規化**: emotional/workのretention差（3-4倍）を解消。正規化後は同偏差値の記憶が同スコアになる
+- **similarity²**: 低類似度の記憶を効果的に抑制（0.3→0.09, 0.7→0.49）
+- **カテゴリブースト**: LLM分類で「技術的な質問にはwork記憶を優先」を実現
+- **感情共鳴**: LLM分類で取得した感情状態で共鳴を計算（従来は未接続だった）
 
 ※ 加算方式を採用することで、感情共鳴の影響を適度に抑えつつ調整しやすくしている
 
@@ -1716,8 +1733,10 @@ Phase 3: 完全なRAG統合
   },
 
   "retrieval": {
-    "top_k": 5,
-    "relevance_threshold": 5.0
+    "top_k": 10,
+    "relevance_threshold": 0.5,
+    "category_boost_beta": 2.0,
+    "debug": false
   },
 
   "archive": {
@@ -1774,8 +1793,10 @@ Phase 3: 完全なRAG統合
 | relations | max_relations_per_memory | 1記憶あたりの最大関連数 | 10 |
 | relations | relation_traversal_depth | 関連記憶の取得深度 | 1 |
 | relations | enable_auto_linking | 自動関連付けの有効/無効 | true |
-| retrieval | top_k | 想起時の最大取得件数 | 5 |
-| retrieval | relevance_threshold | 関連度の閾値（フォールバック判定用） | 5.0 |
+| retrieval | top_k | 想起時の最大取得件数 | 10 |
+| retrieval | relevance_threshold | 関連度の閾値（フォールバック判定用） | 0.5 |
+| retrieval | category_boost_beta | カテゴリブースト係数（一致時） | 2.0 |
+| retrieval | debug | デバッグ出力の有効/無効 | false |
 | archive | enable_archive_recall | アーカイブからの自動復活の有効/無効 | true |
 | archive | revival_decay_per_day | 復活時のアーカイブ滞在日数による減衰係数 | 0.995 |
 | archive | revival_min_margin | 復活時の最低スコアマージン | 3.0 |
@@ -2242,30 +2263,57 @@ def cosine_similarity(vec_a, vec_b):
     b = np.array(vec_b)
     return np.dot(a, b) / (np.linalg.norm(a) * np.linalg.norm(b))
 
-def calculate_relevance(memory, query_embedding, current_emotion=None):
-    """参照優先度を計算"""
-    score = memory.get("retention_score", 0) or 0
+def compute_category_stats(memories):
+    """カテゴリごとのretention_scoreの平均・標準偏差を計算"""
+    from collections import defaultdict
+    import numpy as np
+    by_category = defaultdict(list)
+    for mem in memories:
+        by_category[mem.get("category", "casual")].append(mem.get("retention_score", 0) or 0)
+    stats = {}
+    for cat, values in by_category.items():
+        arr = np.array(values)
+        mean, std = float(np.mean(arr)), float(np.std(arr))
+        stats[cat] = (mean, std if std > 0 else 1.0)
+    return stats
+
+def calculate_relevance(memory, query_embedding, query_category=None,
+                        category_stats=None, current_emotion=None, config=None):
+    """参照優先度を計算（正規化 + similarity² + カテゴリブースト）"""
+    beta = config.get("retrieval", {}).get("category_boost_beta", 2.0) if config else 2.0
+
+    # カテゴリ内正規化
+    retention = memory.get("retention_score", 0) or 0
+    mem_cat = memory.get("category", "casual")
+    if category_stats and mem_cat in category_stats:
+        mean, std = category_stats[mem_cat]
+        normalized = (retention - mean) / std
+    else:
+        normalized = retention
 
     # ベクトル類似度（コサイン類似度）
     memory_embedding = memory.get("embedding")
     if memory_embedding and query_embedding:
-        keyword_match = cosine_similarity(query_embedding, memory_embedding)
-        keyword_match = max(0, keyword_match)
+        similarity = cosine_similarity(query_embedding, memory_embedding)
+        similarity = max(0, similarity)
     else:
-        keyword_match = 0
+        similarity = 0
 
     # recall_count による重み
     recall_weight = 1 + 0.1 * memory.get("recall_count", 0)
 
+    # カテゴリブースト
+    cat_boost = beta if (query_category and mem_cat == query_category) else 1.0
+
     # 基本優先度
-    base_priority = score * keyword_match * recall_weight
+    base_priority = normalized * (similarity ** 2) * recall_weight * cat_boost
 
     # 感情共鳴（current_emotion が指定されている場合）
     resonance_bonus = 0
     if current_emotion:
-        resonance_bonus = calculate_resonance(memory, current_emotion)
+        resonance = calculate_resonance(memory, current_emotion)
         alpha = 0.3
-        resonance_bonus = alpha * resonance_bonus * score
+        resonance_bonus = alpha * resonance * normalized
 
     return base_priority + resonance_bonus
 
@@ -2289,33 +2337,43 @@ def calculate_resonance(memory, current):
 
     return score
 
-def search_memories(query_embedding, memories, archive, top_k=5, config=None):
+def search_memories(query_embedding, memories, archive,
+                    query_category=None, current_emotion=None, config=None):
     """関連記憶を検索（アーカイブ含む、自動復活対応）"""
+    top_k = config.get("retrieval", {}).get("top_k", 10) if config else 10
+    relevance_threshold = config.get("retrieval", {}).get("relevance_threshold", 0.5) if config else 0.5
+
+    # カテゴリ統計を計算
+    all_mems = list(memories)
+    if config and config.get("archive", {}).get("enable_archive_recall", True):
+        all_mems.extend(archive)
+    category_stats = compute_category_stats(all_mems)
+
     scored = []
-    relevance_threshold = config.get("retrieval", {}).get("relevance_threshold", 5.0) if config else 5.0
 
     # アクティブ記憶を検索
     for mem in memories:
-        relevance = calculate_relevance(mem, query_embedding)
-        if relevance > 0:
-            scored.append((relevance, mem, False))
+        relevance = calculate_relevance(
+            mem, query_embedding, query_category=query_category,
+            category_stats=category_stats, current_emotion=current_emotion, config=config)
+        scored.append((relevance, mem, False))
 
-    # アーカイブも検索（enable_archive_recall = true の場合）
+    # アーカイブも検索
     if config and config.get("archive", {}).get("enable_archive_recall", True):
         for mem in archive:
-            relevance = calculate_relevance(mem, query_embedding)
-            if relevance > 0:
-                scored.append((relevance, mem, True))
+            relevance = calculate_relevance(
+                mem, query_embedding, query_category=query_category,
+                category_stats=category_stats, current_emotion=current_emotion, config=config)
+            scored.append((relevance, mem, True))
 
-    # 閾値以上の記憶を抽出
+    scored = [(r, mem, is_arch) for r, mem, is_arch in scored if r > 0]
+
     high_relevance = [(r, mem, is_arch) for r, mem, is_arch in scored if r >= relevance_threshold]
 
     if len(high_relevance) >= top_k:
-        # 十分な候補があれば閾値以上のみソート（高速）
         high_relevance.sort(key=lambda x: x[0], reverse=True)
         return [(mem, is_archived) for _, mem, is_archived in high_relevance[:top_k]]
     else:
-        # 候補不足時は全件からtop_k取得（フォールバック）
         scored.sort(key=lambda x: x[0], reverse=True)
         return [(mem, is_archived) for _, mem, is_archived in scored[:top_k]]
 

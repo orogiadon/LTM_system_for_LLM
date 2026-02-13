@@ -10,6 +10,7 @@ import io
 import json
 import sys
 import uuid
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime
 from pathlib import Path
 from typing import Any
@@ -18,8 +19,8 @@ from typing import Any
 sys.path.insert(0, str(Path(__file__).parent))
 
 from config_loader import get_config
-from embedding import get_embedding
-from llm import analyze_emotion
+from embedding import get_embedding, get_embeddings_batch, truncate_for_embedding
+from llm import analyze_emotion, analyze_emotion_batch
 from memory_store import MemoryStore
 from retention import calculate_initial_decay_coefficient, calculate_retention_score
 
@@ -349,6 +350,159 @@ def process_turn(
     return memory
 
 
+def process_turns_batch(
+    turns: list[tuple[str, str]],
+    store: MemoryStore,
+    config: dict[str, Any],
+    log_func=None
+) -> list[dict[str, Any]]:
+    """
+    複数ターンをバッチ処理して記憶を生成・保存
+
+    LLM感情分析（Message Batch API）とEmbedding生成（一括API）を
+    並列実行し、結果を時系列順にDBへ保存する。
+
+    Args:
+        turns: (user_message, assistant_message) のリスト（時系列順）
+        store: MemoryStoreインスタンス
+        config: 設定辞書
+        log_func: ログ関数
+
+    Returns:
+        生成された記憶データのリスト（時系列順）
+    """
+    def log(msg):
+        if log_func:
+            log_func(msg)
+
+    # Phase 0: フィルタリング
+    valid_turns = []
+    for i, (user_msg, assistant_msg) in enumerate(turns):
+        if should_skip(user_msg):
+            log(f"Skipped turn {i}: slash command or empty")
+            continue
+        valid_turns.append((i, user_msg, assistant_msg))
+
+    if not valid_turns:
+        log("No valid turns to process")
+        return []
+
+    log(f"Valid turns: {len(valid_turns)}/{len(turns)}")
+
+    # バッチ処理用のデータ準備
+    turn_pairs = [(u, a) for _, u, a in valid_turns]
+    embedding_texts = [
+        truncate_for_embedding(f"{u} {a}") for _, u, a in valid_turns
+    ]
+
+    # Phase 1: LLM Batch + Embedding を並列実行
+    log("Starting parallel API calls (LLM batch + Embedding)")
+
+    analyses = {}
+    embeddings = []
+    embedding_max_retries = 3
+    embedding_retry_delay = 2.0
+
+    def run_embeddings_with_retry():
+        """Embedding一括取得（リトライ付き）"""
+        import time as _time
+        for attempt in range(embedding_max_retries):
+            try:
+                return get_embeddings_batch(embedding_texts, config)
+            except Exception as e:
+                log(f"Embedding batch attempt {attempt + 1}/{embedding_max_retries} "
+                    f"failed: {type(e).__name__}: {e}")
+                if attempt < embedding_max_retries - 1:
+                    _time.sleep(embedding_retry_delay * (attempt + 1))
+        log("WARNING: Embedding batch failed after all retries")
+        return []
+
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        batch_future = executor.submit(
+            analyze_emotion_batch, turn_pairs, config, log_func=log_func
+        )
+        embedding_future = executor.submit(run_embeddings_with_retry)
+
+        try:
+            analyses = batch_future.result()
+        except Exception as e:
+            log(f"Batch analysis failed: {type(e).__name__}: {e}")
+
+        embeddings = embedding_future.result()
+
+    log(f"API calls completed: {len(analyses)} analyses, {len(embeddings)} embeddings")
+
+    # Phase 2: 結果結合 + DB保存（時系列順）
+    memories = []
+    for idx, (orig_idx, user_msg, assistant_msg) in enumerate(valid_turns):
+        analysis = analyses.get(idx)
+        if not analysis:
+            log(f"No analysis for turn {orig_idx}, skipping")
+            continue
+
+        # 必須フィールド検証
+        required_fields = [
+            "emotional_intensity", "emotional_valence",
+            "emotional_arousal", "category"
+        ]
+        if not all(f in analysis for f in required_fields):
+            log(f"Missing required fields for turn {orig_idx}, skipping")
+            continue
+
+        embedding = embeddings[idx] if idx < len(embeddings) else None
+
+        # 減衰係数計算
+        decay_coefficient = calculate_initial_decay_coefficient(
+            category=analysis["category"],
+            emotional_intensity=analysis["emotional_intensity"],
+            config=config
+        )
+
+        memory_days = calculate_initial_memory_days(config)
+
+        retention_score = calculate_retention_score(
+            emotional_intensity=analysis["emotional_intensity"],
+            decay_coefficient=decay_coefficient,
+            memory_days=memory_days
+        )
+
+        # 保護フラグ処理
+        protected = analysis.get("protected", False)
+        if protected:
+            if not check_protection_limit(store, config, log_func=log):
+                protected = False
+                log(f"Protection skipped for turn {orig_idx} due to limit")
+
+        memory = {
+            "id": generate_memory_id(),
+            "created": datetime.now().astimezone().isoformat(),
+            "memory_days": memory_days,
+            "recalled_since_last_batch": False,
+            "recall_count": 0,
+            "emotional_intensity": analysis["emotional_intensity"],
+            "emotional_valence": analysis["emotional_valence"],
+            "emotional_arousal": analysis["emotional_arousal"],
+            "emotional_tags": analysis.get("emotional_tags", []),
+            "decay_coefficient": decay_coefficient,
+            "category": analysis["category"],
+            "keywords": analysis.get("keywords", []),
+            "current_level": 1,
+            "trigger": user_msg,
+            "content": assistant_msg,
+            "embedding": embedding,
+            "relations": [],
+            "retention_score": retention_score,
+            "archived_at": None,
+            "protected": protected
+        }
+
+        store.add_memory(memory)
+        memories.append(memory)
+        log(f"Memory created: {memory['id']} (turn {orig_idx})")
+
+    return memories
+
+
 def write_completion_marker(
     count: int,
     transcript_path: str,
@@ -448,14 +602,9 @@ def main():
             log("No turns, exiting")
             return
 
-        # 各ターンを処理
-        processed = 0
-        for i, (user_message, assistant_message) in enumerate(turns):
-            log(f"Processing turn {i}: user={user_message[:50]}...")
-            result = process_turn(user_message, assistant_message, store, config, log_func=log)
-            if result:
-                processed += 1
-                log(f"Processed turn: {result['id']}")
+        # バッチ処理で記憶を生成
+        memories = process_turns_batch(turns, store, config, log_func=log)
+        processed = len(memories)
 
         log(f"=== SessionEnd Hook completed: {processed} memories created ===")
 

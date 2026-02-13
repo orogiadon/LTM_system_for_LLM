@@ -7,6 +7,7 @@ memory_retrieval.py は Hook 用モジュールで外部依存があるため、
 
 import pytest
 import numpy as np
+from collections import defaultdict
 
 
 # --- テスト対象の純粋関数（memory_retrieval.py からコピー）---
@@ -37,12 +38,44 @@ def cosine_similarity(vec_a: list[float], vec_b: list[float]) -> float:
     return float(np.dot(a, b) / (norm_a * norm_b))
 
 
+def compute_category_stats(
+    memories: list[dict],
+) -> dict[str, tuple[float, float]]:
+    """カテゴリごとのretention_scoreの平均・標準偏差を計算"""
+    by_category: dict[str, list[float]] = defaultdict(list)
+    for mem in memories:
+        cat = mem.get("category", "casual")
+        retention = mem.get("retention_score", 0) or 0
+        by_category[cat].append(retention)
+
+    stats: dict[str, tuple[float, float]] = {}
+    for cat, values in by_category.items():
+        arr = np.array(values)
+        mean = float(np.mean(arr))
+        std = float(np.std(arr))
+        if std == 0:
+            std = 1.0
+        stats[cat] = (mean, std)
+
+    return stats
+
+
 def calculate_relevance(
     memory: dict,
     query_embedding: list[float],
+    query_category: str | None = None,
+    category_stats: dict[str, tuple[float, float]] | None = None,
+    beta: float = 2.0,
 ) -> float:
-    """参照優先度を計算（簡易版、感情共鳴なし）"""
+    """参照優先度を計算（正規化 + similarity² + カテゴリブースト）"""
     retention_score = memory.get("retention_score", 0) or 0
+    mem_category = memory.get("category", "casual")
+
+    if category_stats and mem_category in category_stats:
+        mean, std = category_stats[mem_category]
+        normalized_retention = (retention_score - mean) / std
+    else:
+        normalized_retention = retention_score
 
     memory_embedding = memory.get("embedding")
     if memory_embedding and query_embedding:
@@ -54,7 +87,9 @@ def calculate_relevance(
     recall_count = memory.get("recall_count", 0)
     recall_weight = 1 + 0.1 * recall_count
 
-    return retention_score * similarity * recall_weight
+    category_boost = beta if (query_category and mem_category == query_category) else 1.0
+
+    return normalized_retention * (similarity ** 2) * recall_weight * category_boost
 
 
 def format_memories(results: list[tuple[dict, bool]]) -> str:
@@ -143,29 +178,120 @@ class TestCosineSimilarity:
 
 
 class TestCalculateRelevance:
-    """calculate_relevance のテスト"""
+    """calculate_relevance のテスト（正規化 + similarity² + カテゴリブースト）"""
 
-    def test_basic_relevance(self):
-        """基本的な参照優先度計算"""
+    def test_basic_relevance_without_stats(self):
+        """カテゴリ統計なしの場合、retention_scoreをそのまま使用"""
         memory = {
             "retention_score": 50,
             "embedding": [1.0, 0.0, 0.0],
-            "recall_count": 0
+            "recall_count": 0,
+            "category": "work",
         }
         query_embedding = [1.0, 0.0, 0.0]
-
+        # similarity=1.0 → similarity²=1.0, normalized_retention=50
         result = calculate_relevance(memory, query_embedding)
         assert abs(result - 50.0) < 1e-6
 
-    def test_relevance_with_recall_count(self):
+    def test_relevance_with_normalization(self):
+        """カテゴリ内正規化が適用される"""
+        memory = {
+            "retention_score": 80,
+            "embedding": [1.0, 0.0, 0.0],
+            "recall_count": 0,
+            "category": "emotional",
+        }
+        query_embedding = [1.0, 0.0, 0.0]
+        # mean=60, std=10 → normalized = (80-60)/10 = 2.0
+        stats = {"emotional": (60.0, 10.0)}
+        result = calculate_relevance(memory, query_embedding, category_stats=stats)
+        assert abs(result - 2.0) < 1e-6
+
+    def test_similarity_squared(self):
+        """similarityが二乗される"""
+        memory = {
+            "retention_score": 10,
+            "embedding": [0.8, 0.6, 0.0],  # normalized
+            "recall_count": 0,
+            "category": "work",
+        }
+        query_embedding = [1.0, 0.0, 0.0]
+        # cosine_similarity = 0.8, similarity² = 0.64
+        result = calculate_relevance(memory, query_embedding)
+        expected = 10.0 * 0.64 * 1.0
+        assert abs(result - expected) < 1e-4
+
+    def test_category_boost_matching(self):
+        """カテゴリ一致時にβ倍のブーストがかかる"""
+        memory = {
+            "retention_score": 30,
+            "embedding": [1.0, 0.0, 0.0],
+            "recall_count": 0,
+            "category": "work",
+        }
+        query_embedding = [1.0, 0.0, 0.0]
+        result = calculate_relevance(
+            memory, query_embedding, query_category="work", beta=2.0
+        )
+        # 30 * 1.0² * 1.0 * 2.0 = 60.0
+        assert abs(result - 60.0) < 1e-6
+
+    def test_category_boost_not_matching(self):
+        """カテゴリ不一致時はブーストなし"""
+        memory = {
+            "retention_score": 30,
+            "embedding": [1.0, 0.0, 0.0],
+            "recall_count": 0,
+            "category": "emotional",
+        }
+        query_embedding = [1.0, 0.0, 0.0]
+        result = calculate_relevance(
+            memory, query_embedding, query_category="work", beta=2.0
+        )
+        # 30 * 1.0² * 1.0 * 1.0 = 30.0
+        assert abs(result - 30.0) < 1e-6
+
+    def test_normalization_equalizes_categories(self):
+        """正規化によりカテゴリ間のretention差が縮小される"""
+        stats = {
+            "emotional": (80.0, 5.0),
+            "work": (25.0, 5.0),
+        }
+        emotional_mem = {
+            "retention_score": 82,
+            "embedding": [1.0, 0.0, 0.0],
+            "recall_count": 0,
+            "category": "emotional",
+        }
+        work_mem = {
+            "retention_score": 27,
+            "embedding": [1.0, 0.0, 0.0],
+            "recall_count": 0,
+            "category": "work",
+        }
+        query_embedding = [1.0, 0.0, 0.0]
+
+        # emotional: (82-80)/5 = 0.4
+        # work: (27-25)/5 = 0.4
+        emo_score = calculate_relevance(
+            emotional_mem, query_embedding, category_stats=stats
+        )
+        work_score = calculate_relevance(
+            work_mem, query_embedding, category_stats=stats
+        )
+        # 正規化後は同じスコア
+        assert abs(emo_score - work_score) < 1e-6
+
+    def test_recall_count_weight(self):
         """recall_countによる重み付け"""
         memory = {
             "retention_score": 50,
             "embedding": [1.0, 0.0, 0.0],
-            "recall_count": 5
+            "recall_count": 5,
+            "category": "work",
         }
         query_embedding = [1.0, 0.0, 0.0]
-
+        # 50 * 1.0² * (1 + 0.5) * 1.0 = 75.0
         result = calculate_relevance(memory, query_embedding)
         assert abs(result - 75.0) < 1e-6
 
@@ -174,10 +300,10 @@ class TestCalculateRelevance:
         memory = {
             "retention_score": 50,
             "embedding": [1.0, 0.0, 0.0],
-            "recall_count": 0
+            "recall_count": 0,
+            "category": "work",
         }
         query_embedding = [0.0, 1.0, 0.0]
-
         result = calculate_relevance(memory, query_embedding)
         assert result == 0.0
 
@@ -186,10 +312,10 @@ class TestCalculateRelevance:
         memory = {
             "retention_score": 50,
             "embedding": None,
-            "recall_count": 0
+            "recall_count": 0,
+            "category": "work",
         }
         query_embedding = [1.0, 0.0, 0.0]
-
         result = calculate_relevance(memory, query_embedding)
         assert result == 0.0
 
@@ -198,12 +324,62 @@ class TestCalculateRelevance:
         memory = {
             "retention_score": 50,
             "embedding": [-1.0, 0.0, 0.0],
-            "recall_count": 0
+            "recall_count": 0,
+            "category": "work",
         }
         query_embedding = [1.0, 0.0, 0.0]
-
         result = calculate_relevance(memory, query_embedding)
         assert result == 0.0
+
+
+class TestComputeCategoryStats:
+    """compute_category_stats のテスト"""
+
+    def test_basic_stats(self):
+        """基本的な平均・標準偏差の計算"""
+        memories = [
+            {"category": "emotional", "retention_score": 80},
+            {"category": "emotional", "retention_score": 60},
+            {"category": "work", "retention_score": 30},
+            {"category": "work", "retention_score": 20},
+        ]
+        stats = compute_category_stats(memories)
+
+        assert "emotional" in stats
+        assert "work" in stats
+
+        emo_mean, emo_std = stats["emotional"]
+        assert abs(emo_mean - 70.0) < 1e-6
+        assert abs(emo_std - 10.0) < 1e-6
+
+        work_mean, work_std = stats["work"]
+        assert abs(work_mean - 25.0) < 1e-6
+        assert abs(work_std - 5.0) < 1e-6
+
+    def test_single_memory_std_fallback(self):
+        """1件のみのカテゴリはstd=1.0にフォールバック"""
+        memories = [
+            {"category": "decision", "retention_score": 50},
+        ]
+        stats = compute_category_stats(memories)
+        mean, std = stats["decision"]
+        assert abs(mean - 50.0) < 1e-6
+        assert abs(std - 1.0) < 1e-6
+
+    def test_empty_list(self):
+        """空リストの場合"""
+        stats = compute_category_stats([])
+        assert stats == {}
+
+    def test_missing_retention_score(self):
+        """retention_scoreが欠落している場合は0として扱う"""
+        memories = [
+            {"category": "casual", "retention_score": None},
+            {"category": "casual", "retention_score": 10},
+        ]
+        stats = compute_category_stats(memories)
+        mean, std = stats["casual"]
+        assert abs(mean - 5.0) < 1e-6
 
 
 class TestFormatMemories:
