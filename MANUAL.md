@@ -115,10 +115,8 @@ Total Memories:     150
   Protected:        5
 
 By Level (Active):
-  Level 1:             18 ( 15.0%)
-  Level 2:             36 ( 30.0%)
-  Level 3:             42 ( 35.0%)
-  Level 4:             24 ( 20.0%)
+  Level 1:             54 ( 45.0%)
+  Level 2:             66 ( 55.0%)
 
 By Category (Active):
   casual              45 ( 37.5%)
@@ -202,15 +200,14 @@ Compression batch completed:
   Recalled processed: 3
   Memory days updated: 117
   Retention scores updated: 120
-  Compression: {'L1_to_L2': 2, 'L2_to_L3': 5, 'L3_to_L4': 3}
+  Compression: {'L1_to_L2': 2, 'L2_to_archive': 3}
   Revived: 1
-  Ratio enforcement: {'L1_forced': 0, 'L2_forced': 0, 'L3_forced': 2}
   Relations: {'new': 5, 'updated': 12}
   Deleted: 0
 
 Post-batch stats:
   Active: 118 memories
-  By level: {1: 18, 2: 35, 3: 42, 4: 23}
+  By level: {1: 54, 2: 64}
   Protected: 5
   DB size: 2.48 MB
 ```
@@ -355,13 +352,11 @@ conn.close()
 
 **確認事項**:
 1. `revival_request` フラグがセットされているか
-2. 各レベルの比率が目標値を超過していないか（超過時は復活がブロックされる）
 
 **確認方法**:
 ```powershell
 python src/memory_cli.py stats
 ```
-「By Level」の比率を確認。L3が35%を超過している場合、復活はブロックされる。
 
 ---
 
