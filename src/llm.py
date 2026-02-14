@@ -4,6 +4,7 @@ llm.py - LLM操作モジュール
 Claude APIを使用して感情分析・要約・キーワード抽出を行う。
 """
 
+import asyncio
 import json
 import time
 from typing import Any
@@ -187,21 +188,116 @@ def _parse_json_response(text: str) -> dict[str, Any]:
     return json.loads(text)
 
 
+async def _analyze_single_async(
+    client: anthropic.AsyncAnthropic,
+    idx: int,
+    user_msg: str,
+    assistant_msg: str,
+    model: str,
+    max_tokens: int,
+    temperature: float,
+    semaphore: asyncio.Semaphore,
+    max_retries: int = 2,
+    retry_delay: float = 1.0,
+) -> tuple[int, dict[str, Any] | None]:
+    """単一ターンの感情分析を非同期実行（リトライ付き）"""
+    prompt = EMOTION_ANALYSIS_PROMPT.format(
+        user_message=user_msg,
+        assistant_message=assistant_msg
+    )
+
+    for attempt in range(max_retries + 1):
+        try:
+            async with semaphore:
+                response = await client.messages.create(
+                    model=model,
+                    max_tokens=max_tokens,
+                    temperature=temperature,
+                    messages=[{"role": "user", "content": prompt}]
+                )
+            parsed = _parse_json_response(response.content[0].text)
+            return (idx, parsed)
+
+        except RateLimitError:
+            if attempt < max_retries:
+                await asyncio.sleep(retry_delay * (attempt + 1))
+                continue
+            return (idx, None)
+
+        except (APITimeoutError, APIError):
+            if attempt < max_retries:
+                await asyncio.sleep(retry_delay)
+                continue
+            return (idx, None)
+
+        except Exception:
+            return (idx, None)
+
+
+async def _analyze_emotion_batch_async(
+    turns: list[tuple[str, str]],
+    config: dict[str, Any],
+    max_concurrent: int = 10,
+    max_retries: int = 2,
+    log_func=None
+) -> dict[int, dict[str, Any]]:
+    """複数ターンの感情分析をasyncio並列で実行"""
+    def log(msg):
+        if log_func:
+            log_func(msg)
+
+    llm_config = config.get("llm", {})
+    model = llm_config.get("model", "claude-3-5-haiku-20241022")
+    temperature = llm_config.get("temperature", 0)
+    max_tokens = llm_config.get("max_tokens", 1024)
+
+    client = anthropic.AsyncAnthropic(timeout=DEFAULT_TIMEOUT)
+    semaphore = asyncio.Semaphore(max_concurrent)
+
+    log(f"Starting async emotion analysis: {len(turns)} requests "
+        f"(max_concurrent={max_concurrent})")
+
+    tasks = [
+        _analyze_single_async(
+            client, i, user_msg, assistant_msg,
+            model, max_tokens, temperature,
+            semaphore, max_retries
+        )
+        for i, (user_msg, assistant_msg) in enumerate(turns)
+    ]
+
+    completed = await asyncio.gather(*tasks)
+
+    results = {}
+    failed = []
+    for idx, parsed in completed:
+        if parsed is not None:
+            results[idx] = parsed
+        else:
+            failed.append(idx)
+
+    log(f"Async batch completed: {len(results)} succeeded, {len(failed)} failed")
+    if failed:
+        log(f"WARNING: {len(failed)} turns permanently failed: {failed}")
+
+    return results
+
+
 def analyze_emotion_batch(
     turns: list[tuple[str, str]],
     config: dict[str, Any] | None = None,
     max_retries: int = 2,
-    poll_interval: float = 5.0,
+    max_concurrent: int = 10,
     log_func=None
 ) -> dict[int, dict[str, Any]]:
     """
-    複数ターンの感情分析をMessage Batch APIで一括実行
+    複数ターンの感情分析をasyncio並列で一括実行
 
     Args:
         turns: (user_message, assistant_message) のリスト
         config: 設定辞書
-        max_retries: 失敗したリクエストのリトライ回数（個別フォールバック）
-        poll_interval: バッチ完了ポーリング間隔（秒）
+        max_retries: 各リクエストのリトライ回数
+        max_concurrent: 最大同時実行数
         log_func: ログ関数
 
     Returns:
@@ -213,90 +309,11 @@ def analyze_emotion_batch(
     if config is None:
         config = get_config()
 
-    def log(msg):
-        if log_func:
-            log_func(msg)
-
-    llm_config = config.get("llm", {})
-    model = llm_config.get("model", "claude-3-5-haiku-20241022")
-    temperature = llm_config.get("temperature", 0)
-    max_tokens = llm_config.get("max_tokens", 1024)
-
-    client = anthropic.Anthropic(timeout=DEFAULT_TIMEOUT)
-
-    # バッチリクエスト構築
-    requests = []
-    for i, (user_msg, assistant_msg) in enumerate(turns):
-        prompt = EMOTION_ANALYSIS_PROMPT.format(
-            user_message=user_msg,
-            assistant_message=assistant_msg
+    return asyncio.run(
+        _analyze_emotion_batch_async(
+            turns, config, max_concurrent, max_retries, log_func
         )
-        requests.append({
-            "custom_id": f"turn_{i}",
-            "params": {
-                "model": model,
-                "max_tokens": max_tokens,
-                "temperature": temperature,
-                "messages": [{"role": "user", "content": prompt}]
-            }
-        })
-
-    log(f"Submitting emotion analysis batch: {len(requests)} requests")
-
-    batch = client.messages.batches.create(requests=requests)
-    log(f"Batch created: {batch.id}")
-
-    # ポーリングで完了待ち
-    while batch.processing_status != "ended":
-        time.sleep(poll_interval)
-        batch = client.messages.batches.retrieve(batch.id)
-        counts = batch.request_counts
-        log(f"Batch {batch.id}: {batch.processing_status} "
-            f"(succeeded={counts.succeeded}, errored={counts.errored}, "
-            f"processing={counts.processing})")
-
-    # 結果収集
-    results = {}
-    failed_indices = []
-
-    for result in client.messages.batches.results(batch.id):
-        idx = int(result.custom_id.split("_")[1])
-        if result.result.type == "succeeded":
-            try:
-                text = result.result.message.content[0].text
-                parsed = _parse_json_response(text)
-                results[idx] = parsed
-            except Exception as e:
-                log(f"Parse error for turn_{idx}: {e}")
-                failed_indices.append(idx)
-        else:
-            log(f"Batch error for turn_{idx}: {result.result.type}")
-            failed_indices.append(idx)
-
-    log(f"Batch completed: {len(results)} succeeded, {len(failed_indices)} failed")
-
-    # 失敗分を個別リクエストでリトライ
-    for retry_attempt in range(max_retries):
-        if not failed_indices:
-            break
-        log(f"Retrying {len(failed_indices)} failed requests "
-            f"(attempt {retry_attempt + 1}/{max_retries})")
-        still_failed = []
-        for idx in failed_indices:
-            user_msg, assistant_msg = turns[idx]
-            try:
-                analysis = analyze_emotion(user_msg, assistant_msg, config)
-                results[idx] = analysis
-                log(f"Retry succeeded for turn_{idx}")
-            except Exception as e:
-                log(f"Retry failed for turn_{idx}: {e}")
-                still_failed.append(idx)
-        failed_indices = still_failed
-
-    if failed_indices:
-        log(f"WARNING: {len(failed_indices)} turns permanently failed: {failed_indices}")
-
-    return results
+    )
 
 
 def classify_query(
