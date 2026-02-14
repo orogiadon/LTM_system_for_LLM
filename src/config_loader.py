@@ -26,8 +26,7 @@ DEFAULT_CONFIG = {
 
     "levels": {
         "level1_threshold": 50,
-        "level2_threshold": 20,
-        "level3_threshold": 5
+        "level2_threshold": 20
     },
 
     "recall": {

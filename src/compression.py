@@ -17,7 +17,7 @@ from typing import Any
 
 from config_loader import get_config
 from embedding import get_embedding
-from llm import compress_to_level2, compress_to_level3
+from llm import compress_to_level2
 from memory_store import MemoryStore
 from recall import process_all_recalled_memories
 from relations import process_relations
@@ -133,15 +133,6 @@ def compress_memory(
             updates["trigger"] = new_trigger
             updates["content"] = new_content
 
-        if current_level <= 2 and new_level >= 3:
-            # Level 2 → 3: キーワード化
-            # Level 1から3に直接移行する場合も考慮
-            src_trigger = updates.get("trigger", trigger)
-            src_content = updates.get("content", content)
-            new_trigger, new_content = compress_to_level3(src_trigger, src_content, config)
-            updates["trigger"] = new_trigger
-            updates["content"] = new_content
-
         if new_level == 4:
             # Level 4: アーカイブ
             updates["archived_at"] = datetime.now().astimezone().isoformat()
@@ -175,7 +166,7 @@ def process_compression(store: MemoryStore, config: dict[str, Any] | None = None
     if config is None:
         config = get_config()
 
-    results = {"l1_to_l2": 0, "l2_to_l3": 0, "l3_to_archive": 0}
+    results = {"l1_to_l2": 0, "l2_to_archive": 0}
 
     memories = store.get_active_memories()
 
@@ -190,10 +181,8 @@ def process_compression(store: MemoryStore, config: dict[str, Any] | None = None
         if compress_memory(memory, new_level, store, config):
             if current_level == 1 and new_level == 2:
                 results["l1_to_l2"] += 1
-            elif current_level == 2 and new_level == 3:
-                results["l2_to_l3"] += 1
             elif new_level == 4:
-                results["l3_to_archive"] += 1
+                results["l2_to_archive"] += 1
 
     return results
 
@@ -225,7 +214,7 @@ def process_revival(store: MemoryStore, config: dict[str, Any] | None = None) ->
 
     revived_count = 0
     levels_config = config.get("levels", {})
-    level3_threshold = levels_config.get("level3_threshold", 5)
+    level2_threshold = levels_config.get("level2_threshold", 20)
 
     for row in rows:
         memory = store._row_to_dict(row)
@@ -247,13 +236,13 @@ def process_revival(store: MemoryStore, config: dict[str, Any] | None = None) ->
         new_score = original_intensity * (revival_decay ** days_in_archive)
 
         # 最低マージンを確保
-        min_score = level3_threshold + revival_margin
+        min_score = level2_threshold + revival_margin
         new_score = max(new_score, min_score)
 
         # 復活
         store.update_memory(memory["id"], {
             "archived_at": None,
-            "current_level": 3,
+            "current_level": 2,
             "retention_score": new_score,
             "revival_requested": False,
             "revival_requested_at": None

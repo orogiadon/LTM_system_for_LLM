@@ -74,19 +74,14 @@ class TestDetermineLevel:
         level = determine_level(20)
         assert level == 2
 
-    def test_level3(self):
-        """Level 3の範囲"""
-        level = determine_level(10)
-        assert level == 3
+    def test_level4_below_level2(self):
+        """Level 2未満はLevel 4（アーカイブ）"""
+        level = determine_level(19)
+        assert level == 4
 
-    def test_level3_threshold(self):
-        """Level 3の閾値（5）"""
+    def test_level4_low_score(self):
+        """低スコアはLevel 4"""
         level = determine_level(5)
-        assert level == 3
-
-    def test_level4_archive(self):
-        """Level 4（アーカイブ）"""
-        level = determine_level(4)
         assert level == 4
 
     def test_level4_zero(self):
@@ -178,7 +173,7 @@ class TestShouldCompress:
     def test_no_downgrade(self):
         """レベルは下がらない"""
         memory = {
-            "current_level": 3,
+            "current_level": 2,
             "retention_score": 80,
             "emotional_intensity": 80,
             "decay_coefficient": 0.999,
@@ -187,4 +182,4 @@ class TestShouldCompress:
         }
         should, new_level = should_compress(memory)
         assert should is False
-        assert new_level == 3
+        assert new_level == 2

@@ -181,6 +181,5 @@ class TestDefaultConfig:
     def test_levels_thresholds(self):
         """levels の閾値"""
         levels = DEFAULT_CONFIG["levels"]
-        # Level 1 > Level 2 > Level 3
+        # Level 1 > Level 2
         assert levels["level1_threshold"] > levels["level2_threshold"]
-        assert levels["level2_threshold"] > levels["level3_threshold"]

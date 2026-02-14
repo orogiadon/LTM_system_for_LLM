@@ -50,14 +50,11 @@ def determine_level(
     levels = config.get("levels", {})
     level1_threshold = levels.get("level1_threshold", 50)
     level2_threshold = levels.get("level2_threshold", 20)
-    level3_threshold = levels.get("level3_threshold", 5)
 
     if retention_score >= level1_threshold:
         return 1  # 完全記憶
     elif retention_score >= level2_threshold:
         return 2  # 圧縮記憶
-    elif retention_score >= level3_threshold:
-        return 3  # 痕跡記憶
     else:
         return 4  # アーカイブ
 

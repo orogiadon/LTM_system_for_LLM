@@ -70,20 +70,6 @@ SUMMARIZE_PROMPT = """以下の記憶を要約してください。
 ```"""
 
 
-# キーワード抽出プロンプト（Level 2 → 3）
-KEYWORD_EXTRACT_PROMPT = """以下のテキストから重要なキーワードを5〜10語抽出してください。
-
-## テキスト
-{text}
-
-## 出力形式
-以下のJSON形式で出力してください。余計な説明は不要です。
-
-```json
-{{
-  "keywords": ["キーワード1", "キーワード2", ...]
-}}
-```"""
 
 
 # クエリ分類プロンプト（想起時のカテゴリ・感情分類）
@@ -390,23 +376,6 @@ def summarize_memory(
     return result.get("trigger", trigger), result.get("content", content)
 
 
-def extract_keywords(text: str, config: dict[str, Any] | None = None) -> list[str]:
-    """
-    テキストからキーワードを抽出する（Level 2 → 3 圧縮用）
-
-    Args:
-        text: キーワード抽出対象のテキスト
-        config: 設定辞書
-
-    Returns:
-        キーワードのリスト
-    """
-    prompt = KEYWORD_EXTRACT_PROMPT.format(text=text)
-    response = _call_claude(prompt, config)
-    result = _parse_json_response(response)
-    return result.get("keywords", [])
-
-
 def compress_to_level2(
     trigger: str,
     content: str,
@@ -426,28 +395,3 @@ def compress_to_level2(
     return summarize_memory(trigger, content, config)
 
 
-def compress_to_level3(
-    trigger: str,
-    content: str,
-    config: dict[str, Any] | None = None
-) -> tuple[str, str]:
-    """
-    Level 2 → Level 3 への圧縮
-
-    Args:
-        trigger: 元のtrigger
-        content: 元のcontent
-        config: 設定辞書
-
-    Returns:
-        (キーワード化されたtrigger, キーワード化されたcontent) のタプル
-    """
-    # trigger と content をそれぞれキーワード化
-    trigger_keywords = extract_keywords(trigger, config)
-    content_keywords = extract_keywords(content, config)
-
-    # キーワードをカンマ区切りの文字列に
-    trigger_result = ", ".join(trigger_keywords) if trigger_keywords else trigger
-    content_result = ", ".join(content_keywords) if content_keywords else content
-
-    return trigger_result, content_result
